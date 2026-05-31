@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class Dashboard extends StatefulWidget {
   const Dashboard({super.key});
@@ -8,17 +9,80 @@ class Dashboard extends StatefulWidget {
   State<Dashboard> createState() => _DashboardState();
 }
 
-class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMixin {
+class _DashboardState extends State<Dashboard>
+    with SingleTickerProviderStateMixin {
   int _selectedIndex = 0;
   late AnimationController _bgController;
+  final _supabase = Supabase.instance.client;
+
+  int _totalMembers = 0;
+  int _totalTournaments = 0;
+  int _totalAchievements = 0;
+  int _totalSponsors = 0;
+  int _totalTeams = 0;
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
     _bgController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 10),
+      duration: const Duration(seconds: 15),
     )..repeat(reverse: true);
+    _fetchOverviewData();
+  }
+
+  Future<void> _fetchOverviewData() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+    debugPrint('🔄 Starting fetch...');
+    try {
+      debugPrint('📡 Fetching team_members...');
+      final teamMembersRes = await _supabase.from('team_members').count();
+      debugPrint('✅ team_members count: $teamMembersRes');
+
+      debugPrint('📡 Fetching media_team...');
+      final mediaTeamRes = await _supabase.from('media_team').count();
+      debugPrint('✅ media_team count: $mediaTeamRes');
+
+      debugPrint('📡 Fetching members...');
+      final membersRes = await _supabase.from('members').count();
+      debugPrint('✅ members count: $membersRes');
+
+      debugPrint('📡 Fetching competitions...');
+      final tournamentsRes = await _supabase.from('competitions').count();
+      debugPrint('✅ competitions count: $tournamentsRes');
+
+      debugPrint('📡 Fetching Achievements...');
+      final achievementsRes = await _supabase.from('Achievements').count();
+      debugPrint('✅ Achievements count: $achievementsRes');
+
+      debugPrint('📡 Fetching sponsors...');
+      final sponsorsRes = await _supabase.from('sponsors').count();
+      debugPrint('✅ sponsors count: $sponsorsRes');
+
+      debugPrint('📡 Fetching active teams...');
+      final activeTeamsRes =
+      await _supabase.from('teams').count().eq('is_active', true);
+      debugPrint('✅ active teams count: $activeTeamsRes');
+
+      if (mounted) {
+        setState(() {
+          _totalMembers = teamMembersRes + mediaTeamRes + membersRes;
+          _totalTournaments = tournamentsRes;
+          _totalAchievements = achievementsRes;
+          _totalSponsors = sponsorsRes;
+          _totalTeams = activeTeamsRes;
+          _isLoading = false;
+        });
+        debugPrint(
+            '✅ State updated — Members: $_totalMembers, Tournaments: $_totalTournaments, Achievements: $_totalAchievements, Sponsors: $_totalSponsors, Teams: $_totalTeams');
+      }
+    } catch (e, stackTrace) {
+      debugPrint('❌ ERROR: $e');
+      debugPrint('📋 StackTrace: $stackTrace');
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -28,7 +92,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   }
 
   String _getGreeting() {
-    var hour = DateTime.now().hour;
+    final hour = DateTime.now().hour;
     if (hour < 12) return 'Good Morning';
     if (hour < 17) return 'Good Afternoon';
     return 'Good Evening';
@@ -38,261 +102,324 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true,
-      backgroundColor: const Color(0xFF0D0B26),
+      backgroundColor: const Color(0xFF080720),
       body: Stack(
         children: [
-          // Dynamic Animated Background Blobs
+          // Animated background blobs
           AnimatedBuilder(
             animation: _bgController,
-            builder: (context, child) {
-              return Stack(
-                children: [
-                  Positioned(
-                    top: -100 + (20 * _bgController.value),
-                    right: -50 - (30 * _bgController.value),
-                    child: _BlurBlob(color: const Color(0xFF6366F1).withOpacity(0.15), size: 350),
-                  ),
-                  Positioned(
-                    bottom: 150 - (40 * _bgController.value),
-                    left: -120 + (50 * _bgController.value),
-                    child: _BlurBlob(color: const Color(0xFFEC4899).withOpacity(0.1), size: 450),
-                  ),
-                  Positioned(
-                    top: 300 + (60 * _bgController.value),
-                    left: 100 - (20 * _bgController.value),
-                    child: _BlurBlob(color: const Color(0xFF10B981).withOpacity(0.05), size: 300),
-                  ),
-                ],
-              );
-            },
-          ),
-          
-          SafeArea(
-            bottom: false,
-            child: CustomScrollView(
-              physics: const BouncingScrollPhysics(),
-              slivers: [
-                // --- Top Profile & Header ---
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 15),
-                    child: _EnhancedTopBar(greeting: _getGreeting()),
-                  ),
+            builder: (context, _) => Stack(
+              children: [
+                Positioned(
+                  top: -80 + (40 * _bgController.value),
+                  right: -60 - (30 * _bgController.value),
+                  child: _GlowBlob(
+                      color: const Color(0xFF6366F1).withOpacity(0.18),
+                      size: 380),
                 ),
-
-                // --- Management Section Header ---
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(24, 25, 24, 15),
-                    child: Row(
-                      children: [
-                        _SectionIndicator(),
-                        SizedBox(width: 10),
-                        Text(
-                          'Management',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: -0.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                Positioned(
+                  bottom: 80 - (40 * _bgController.value),
+                  left: -100 + (50 * _bgController.value),
+                  child: _GlowBlob(
+                      color: const Color(0xFFEC4899).withOpacity(0.10),
+                      size: 420),
                 ),
-
-                // --- Management Grid ---
-                const SliverPadding(
-                  padding: EdgeInsets.symmetric(horizontal: 20),
-                  sliver: _ManagementGrid(),
-                ),
-
-                // --- Recent Activity Header ---
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(24, 35, 24, 15),
-                    child: Row(
-                      children: [
-                        _SectionIndicator(color: Color(0xFFEC4899)),
-                        SizedBox(width: 10),
-                        Text(
-                          'Recent Activity',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // --- Activity List ---
-                const SliverPadding(
-                  padding: EdgeInsets.symmetric(horizontal: 20),
-                  sliver: _EnhancedActivityList(),
-                ),
-
-                const SliverToBoxAdapter(
-                  child: SizedBox(height: 140),
+                Positioned(
+                  top: 300 + (20 * _bgController.value),
+                  right: 100 - (20 * _bgController.value),
+                  child: _GlowBlob(
+                      color: const Color(0xFF06B6D4).withOpacity(0.07),
+                      size: 250),
                 ),
               ],
             ),
           ),
+
+          SafeArea(
+            bottom: false,
+            child: RefreshIndicator(
+              onRefresh: _fetchOverviewData,
+              backgroundColor: const Color(0xFF1a1a3e),
+              color: const Color(0xFF6366F1),
+              child: CustomScrollView(
+                physics: const BouncingScrollPhysics(),
+                slivers: [
+                  // Top bar
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+                      child: _TopBar(greeting: _getGreeting()),
+                    ),
+                  ),
+
+                  // Overview header
+                  SliverToBoxAdapter(
+                    child: _SectionHeader(
+                      label: 'Overview',
+                      color: Colors.cyanAccent,
+                    ),
+                  ),
+
+                  // Stats grid (2x2)
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    sliver: SliverGrid(
+                      gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        mainAxisSpacing: 14,
+                        crossAxisSpacing: 14,
+                        childAspectRatio: 1.65,
+                      ),
+                      delegate: SliverChildListDelegate([
+                        _StatCard(
+                          title: 'Total Members',
+                          value: _totalMembers.toString(),
+                          icon: Icons.people_alt_rounded,
+                          color: const Color(0xFF6366F1),
+                          isLoading: _isLoading,
+                        ),
+                        _StatCard(
+                          title: 'Tournaments',
+                          value: _totalTournaments.toString(),
+                          icon: Icons.emoji_events_rounded,
+                          color: const Color(0xFFF59E0B),
+                          isLoading: _isLoading,
+                        ),
+                        _StatCard(
+                          title: 'Achievements',
+                          value: _totalAchievements.toString(),
+                          icon: Icons.military_tech_rounded,
+                          color: const Color(0xFF10B981),
+                          isLoading: _isLoading,
+                        ),
+                        _StatCard(
+                          title: 'Sponsors',
+                          value: _totalSponsors.toString(),
+                          icon: Icons.business_center_rounded,
+                          color: const Color(0xFFEC4899),
+                          isLoading: _isLoading,
+                        ),
+                      ]),
+                    ),
+                  ),
+
+                  // Active teams full-width
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                      child: _StatCard(
+                        title: 'Active Teams',
+                        value: _totalTeams.toString(),
+                        icon: Icons.hub_rounded,
+                        color: const Color(0xFF06B6D4),
+                        isLoading: _isLoading,
+                        fullWidth: true,
+                      ),
+                    ),
+                  ),
+
+                  // Management header
+                  SliverToBoxAdapter(
+                    child: _SectionHeader(
+                      label: 'Management',
+                      color: const Color(0xFF6366F1),
+                      topPadding: 32,
+                    ),
+                  ),
+
+                  // Management row — 4 in one row
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: _ManagementRow(),
+                    ),
+                  ),
+
+                  const SliverToBoxAdapter(child: SizedBox(height: 140)),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
-      bottomNavigationBar: _ModernBottomNav(
+      bottomNavigationBar: _BottomNav(
         selectedIndex: _selectedIndex,
-        onItemTapped: (i) => setState(() => _selectedIndex = i),
+        onTap: (i) => setState(() => _selectedIndex = i),
       ),
     );
   }
 }
 
-class _SectionIndicator extends StatelessWidget {
-  final Color color;
-  const _SectionIndicator({this.color = const Color(0xFF6366F1)});
+// ── Glow blob ──────────────────────────────────────────────────────────────
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 4,
-      height: 20,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: [BoxShadow(color: color.withOpacity(0.5), blurRadius: 8)],
-      ),
-    );
-  }
-}
-
-class _BlurBlob extends StatelessWidget {
+class _GlowBlob extends StatelessWidget {
   final Color color;
   final double size;
-  const _BlurBlob({required this.color, required this.size});
+  const _GlowBlob({required this.color, required this.size});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-      ),
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 90, sigmaY: 90),
+        filter: ImageFilter.blur(sigmaX: 100, sigmaY: 100),
         child: Container(color: Colors.transparent),
       ),
     );
   }
 }
 
-// ─── Refined Glass Helper ──────────────────────────────────────────────────
+// ── Glass card ─────────────────────────────────────────────────────────────
 
 class _GlassCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final double radius;
   final Color? tint;
-  final bool border;
+  final List<BoxShadow>? shadows;
 
   const _GlassCard({
     required this.child,
     this.padding = const EdgeInsets.all(16),
     this.radius = 24,
     this.tint,
-    this.border = true,
+    this.shadows,
   });
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            color: tint ?? Colors.white.withOpacity(.06),
-            borderRadius: BorderRadius.circular(radius),
-            border: border ? Border.all(color: Colors.white.withOpacity(.12), width: 1) : null,
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white.withOpacity(0.12),
-                Colors.white.withOpacity(0.04),
-              ],
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        boxShadow: shadows,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Container(
+            padding: padding,
+            decoration: BoxDecoration(
+              color: tint ?? Colors.white.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(radius),
+              border: Border.all(
+                  color: Colors.white.withOpacity(0.12), width: 1),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.withOpacity(0.10),
+                  Colors.white.withOpacity(0.02),
+                ],
+              ),
             ),
+            child: child,
           ),
-          child: child,
         ),
       ),
     );
   }
 }
 
-// ─── Header Section ────────────────────────────────────────────────────────
+// ── Section header ─────────────────────────────────────────────────────────
 
-class _EnhancedTopBar extends StatelessWidget {
+class _SectionHeader extends StatelessWidget {
+  final String label;
+  final Color color;
+  final double topPadding;
+
+  const _SectionHeader({
+    required this.label,
+    required this.color,
+    this.topPadding = 20,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(24, topPadding, 24, 16),
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 22,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: [
+                BoxShadow(
+                    color: color.withOpacity(0.6),
+                    blurRadius: 10,
+                    spreadRadius: 1)
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+              letterSpacing: -0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Top bar ────────────────────────────────────────────────────────────────
+
+class _TopBar extends StatelessWidget {
   final String greeting;
-  const _EnhancedTopBar({required this.greeting});
+  const _TopBar({required this.greeting});
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Stack(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF6366F1), Color(0xFFEC4899)],
-                ),
-              ),
-              child: const CircleAvatar(
-                radius: 26,
-                backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=32'),
-              ),
+        Container(
+          padding: const EdgeInsets.all(2.5),
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+                colors: [Color(0xFF6366F1), Color(0xFFEC4899)]),
+          ),
+          child: Container(
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: Color(0xFF080720),
             ),
-            Positioned(
-              right: 2,
-              bottom: 2,
-              child: Container(
-                width: 14,
-                height: 14,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10B981),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFF0D0B26), width: 2),
-                ),
-              ),
+            padding: const EdgeInsets.all(2),
+            child: const CircleAvatar(
+              radius: 23,
+              backgroundImage:
+              NetworkImage('https://i.pravatar.cc/150?img=11'),
             ),
-          ],
+          ),
         ),
-        const SizedBox(width: 16),
+        const SizedBox(width: 14),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                greeting,
-                style: const TextStyle(fontSize: 13, color: Colors.white54, fontWeight: FontWeight.w500),
-              ),
+              Text(greeting,
+                  style: const TextStyle(
+                      fontSize: 13,
+                      color: Colors.white54,
+                      fontWeight: FontWeight.w500)),
               const Text(
-                'Admin Dashboard',
+                'Super Admin',
                 style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.white,
-                  letterSpacing: -0.5,
-                ),
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    letterSpacing: -0.5),
               ),
             ],
           ),
@@ -300,98 +427,313 @@ class _EnhancedTopBar extends StatelessWidget {
         _GlassCard(
           padding: const EdgeInsets.all(12),
           radius: 18,
-          child: const Icon(Icons.notifications_active_outlined, color: Colors.white, size: 24),
+          shadows: [
+            BoxShadow(
+                color: const Color(0xFF6366F1).withOpacity(0.2),
+                blurRadius: 16,
+                offset: const Offset(0, 4))
+          ],
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const Icon(Icons.notifications_active_outlined,
+                  color: Colors.white, size: 24),
+              Positioned(
+                top: -2,
+                right: -2,
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEC4899),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                          color:
+                          const Color(0xFFEC4899).withOpacity(0.6),
+                          blurRadius: 6)
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 }
 
-// ─── Management Grid ───────────────────────────────────────────────────────
+// ── Stat card ──────────────────────────────────────────────────────────────
 
-class _ManagementGrid extends StatelessWidget {
-  const _ManagementGrid();
+class _StatCard extends StatelessWidget {
+  final String title, value;
+  final IconData icon;
+  final Color color;
+  final bool isLoading;
+  final bool fullWidth;
 
-  static const _items = [
-    (label: 'Members', icon: Icons.people_alt_rounded, color: Color(0xFF6366F1), sub: '48 Active'),
-    (label: 'Teams', icon: Icons.hub_rounded, color: Color(0xFF10B981), sub: '12 Squads'),
-    (label: 'Matches', icon: Icons.sports_esports_rounded, color: Color(0xFFF59E0B), sub: '8 Today'),
-    (label: 'Contents', icon: Icons.auto_awesome_motion_rounded, color: Color(0xFFEC4899), sub: '124 Items'),
-  ];
+  const _StatCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+    required this.isLoading,
+    this.fullWidth = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return SliverGrid(
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        childAspectRatio: 1.1,
-      ),
-      delegate: SliverChildBuilderDelegate(
-        (context, index) {
-          final item = _items[index];
-          return _InteractiveNavCard(item: item);
-        },
-        childCount: _items.length,
+    return _GlassCard(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      radius: 22,
+      shadows: [
+        BoxShadow(
+            color: color.withOpacity(0.15),
+            blurRadius: 20,
+            offset: const Offset(0, 6)),
+        BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4)),
+      ],
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: color.withOpacity(0.3), width: 1),
+              boxShadow: [
+                BoxShadow(
+                    color: color.withOpacity(0.2),
+                    blurRadius: 12,
+                    spreadRadius: 1)
+              ],
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (isLoading)
+                  Container(
+                    height: 22,
+                    width: 50,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  )
+                else
+                  Text(
+                    value,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: fullWidth ? 26 : 20,
+                      fontWeight: FontWeight.w900,
+                      shadows: [
+                        Shadow(
+                            color: color.withOpacity(0.4),
+                            blurRadius: 8)
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 3),
+                Text(
+                  title,
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.45),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.3),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          if (fullWidth)
+            Container(
+              padding:
+              const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: color.withOpacity(0.3)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.circle, color: color, size: 7),
+                  const SizedBox(width: 5),
+                  Text('Active',
+                      style: TextStyle(
+                          color: color,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700)),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
 }
 
-class _InteractiveNavCard extends StatefulWidget {
-  final dynamic item;
-  const _InteractiveNavCard({required this.item});
+// ── Management row — 4 buttons in one row ──────────────────────────────────
 
-  @override
-  State<_InteractiveNavCard> createState() => _InteractiveNavCardState();
-}
+class _ManagementRow extends StatelessWidget {
+  _ManagementRow();
 
-class _InteractiveNavCardState extends State<_InteractiveNavCard> {
-  bool _isPressed = false;
+  final _items = const [
+    _MgmtItem(
+        label: 'Members',
+        icon: Icons.people_alt_rounded,
+        color: Color(0xFF6366F1),
+        sub: 'Roster'),
+    _MgmtItem(
+        label: 'Teams',
+        icon: Icons.hub_rounded,
+        color: Color(0xFF10B981),
+        sub: 'Squads'),
+    _MgmtItem(
+        label: 'Matches',
+        icon: Icons.sports_esports_rounded,
+        color: Color(0xFFF59E0B),
+        sub: 'Games'),
+    _MgmtItem(
+        label: 'Contents',
+        icon: Icons.auto_awesome_motion_rounded,
+        color: Color(0xFFEC4899),
+        sub: 'Media'),
+  ];
 
   @override
   Widget build(BuildContext context) {
+    return Row(
+      children: _items
+          .map((item) => Expanded(
+        child: Padding(
+          padding: EdgeInsets.only(
+              right: _items.last == item ? 0 : 10),
+          child: _ManagementButton(item: item),
+        ),
+      ))
+          .toList(),
+    );
+  }
+}
+
+class _MgmtItem {
+  final String label, sub;
+  final IconData icon;
+  final Color color;
+  const _MgmtItem(
+      {required this.label,
+        required this.icon,
+        required this.color,
+        required this.sub});
+}
+
+class _ManagementButton extends StatefulWidget {
+  final _MgmtItem item;
+  const _ManagementButton({required this.item});
+
+  @override
+  State<_ManagementButton> createState() => _ManagementButtonState();
+}
+
+class _ManagementButtonState extends State<_ManagementButton> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
     return GestureDetector(
-      onTapDown: (_) => setState(() => _isPressed = true),
-      onTapUp: (_) => setState(() => _isPressed = false),
-      onTapCancel: () => setState(() => _isPressed = false),
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTapCancel: () => setState(() => _pressed = false),
       child: AnimatedScale(
-        scale: _isPressed ? 0.95 : 1.0,
-        duration: const Duration(milliseconds: 100),
-        child: _GlassCard(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
+        scale: _pressed ? 0.93 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                  color: item.color.withOpacity(0.25),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6)),
+              BoxShadow(
+                  color: Colors.black.withOpacity(0.35),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4)),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    vertical: 18, horizontal: 8),
                 decoration: BoxDecoration(
-                  color: widget.item.color.withOpacity(.12),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: widget.item.color.withOpacity(.3)),
-                  boxShadow: [
-                    BoxShadow(color: widget.item.color.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4))
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      item.color.withOpacity(0.18),
+                      item.color.withOpacity(0.06),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                      color: item.color.withOpacity(0.35), width: 1),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: item.color.withOpacity(0.15),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                              color: item.color.withOpacity(0.35),
+                              blurRadius: 14,
+                              spreadRadius: 1)
+                        ],
+                      ),
+                      child: Icon(item.icon, color: item.color, size: 22),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      item.label,
+                      style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      item.sub,
+                      style: TextStyle(
+                          fontSize: 10,
+                          color: item.color.withOpacity(0.7),
+                          fontWeight: FontWeight.w600),
+                      textAlign: TextAlign.center,
+                    ),
                   ],
                 ),
-                child: Icon(widget.item.icon, color: widget.item.color, size: 28),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.item.label,
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    widget.item.sub,
-                    style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(.4), fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -399,117 +741,55 @@ class _InteractiveNavCardState extends State<_InteractiveNavCard> {
   }
 }
 
-// ─── Recent Activity Section ───────────────────────────────────────────────
+// ── Bottom nav ─────────────────────────────────────────────────────────────
 
-class _EnhancedActivityList extends StatelessWidget {
-  const _EnhancedActivityList();
-
-  @override
-  Widget build(BuildContext context) {
-    return SliverList(
-      delegate: SliverChildBuilderDelegate(
-        (context, index) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _EnhancedActivityTile(index: index),
-          );
-        },
-        childCount: 4,
-      ),
-    );
-  }
-}
-
-class _EnhancedActivityTile extends StatelessWidget {
-  final int index;
-  const _EnhancedActivityTile({required this.index});
-
-  @override
-  Widget build(BuildContext context) {
-    final activities = [
-      (title: 'New Member', desc: 'Satoshi Nakamoto joined Robotics Team', time: '12m ago', icon: Icons.person_add_rounded, color: Color(0xFF6366F1)),
-      (title: 'Match Result', desc: 'Team Phoenix won against CyberDragons', time: '45m ago', icon: Icons.military_tech_rounded, color: Color(0xFFF59E0B)),
-      (title: 'New Post', desc: 'Admin published "Season 5 Updates"', time: '2h ago', icon: Icons.edit_note_rounded, color: Color(0xFFEC4899)),
-      (title: 'System Alert', desc: 'Database backup completed successfully', time: '5h ago', icon: Icons.verified_user_rounded, color: Color(0xFF10B981)),
-    ];
-
-    final act = activities[index % activities.length];
-
-    return _GlassCard(
-      padding: const EdgeInsets.all(16),
-      radius: 22,
-      child: Row(
-        children: [
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [act.color.withOpacity(0.2), act.color.withOpacity(0.05)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(15),
-            ),
-            child: Icon(act.icon, color: act.color, size: 26),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(act.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
-                const SizedBox(height: 2),
-                Text(
-                  act.desc,
-                  style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13, fontWeight: FontWeight.w500),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(act.time, style: TextStyle(color: Colors.white.withOpacity(0.25), fontSize: 11, fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Modern Bottom Navigation ──────────────────────────────────────────────
-
-class _ModernBottomNav extends StatelessWidget {
+class _BottomNav extends StatelessWidget {
   final int selectedIndex;
-  final ValueChanged<int> onItemTapped;
+  final ValueChanged<int> onTap;
 
-  const _ModernBottomNav({required this.selectedIndex, required this.onItemTapped});
+  const _BottomNav({required this.selectedIndex, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 0, 20, 30),
-      height: 80,
+      height: 72,
       decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(32),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(.5),
-            blurRadius: 40,
-            offset: const Offset(0, 15),
-          ),
+              color: const Color(0xFF6366F1).withOpacity(0.15),
+              blurRadius: 30,
+              offset: const Offset(0, 8)),
+          BoxShadow(
+              color: Colors.black.withOpacity(0.5),
+              blurRadius: 20,
+              offset: const Offset(0, 6)),
         ],
       ),
       child: _GlassCard(
         padding: EdgeInsets.zero,
-        radius: 30,
-        tint: Colors.white.withOpacity(.08),
+        radius: 32,
+        tint: Colors.white.withOpacity(0.07),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _ModernNavIcon(icon: Icons.grid_view_rounded, active: selectedIndex == 0, onTap: () => onItemTapped(0)),
-            _ModernNavIcon(icon: Icons.analytics_outlined, active: selectedIndex == 1, onTap: () => onItemTapped(1)),
-            _ModernNavIcon(icon: Icons.person_outline_rounded, active: selectedIndex == 2, onTap: () => onItemTapped(2)),
-            _ModernNavIcon(icon: Icons.settings_rounded, active: selectedIndex == 3, onTap: () => onItemTapped(3)),
+            _NavIcon(
+                icon: Icons.grid_view_rounded,
+                active: selectedIndex == 0,
+                onTap: () => onTap(0)),
+            _NavIcon(
+                icon: Icons.analytics_outlined,
+                active: selectedIndex == 1,
+                onTap: () => onTap(1)),
+            _NavIcon(
+                icon: Icons.person_outline_rounded,
+                active: selectedIndex == 2,
+                onTap: () => onTap(2)),
+            _NavIcon(
+                icon: Icons.settings_rounded,
+                active: selectedIndex == 3,
+                onTap: () => onTap(3)),
           ],
         ),
       ),
@@ -517,12 +797,13 @@ class _ModernBottomNav extends StatelessWidget {
   }
 }
 
-class _ModernNavIcon extends StatelessWidget {
+class _NavIcon extends StatelessWidget {
   final IconData icon;
   final bool active;
   final VoidCallback onTap;
 
-  const _ModernNavIcon({required this.icon, required this.active, required this.onTap});
+  const _NavIcon(
+      {required this.icon, required this.active, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -531,28 +812,29 @@ class _ModernNavIcon extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        padding:
+        const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
         decoration: BoxDecoration(
-          color: active ? Colors.white.withOpacity(.1) : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
+          color: active
+              ? const Color(0xFF6366F1).withOpacity(0.18)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: active
+              ? [
+            BoxShadow(
+                color:
+                const Color(0xFF6366F1).withOpacity(0.35),
+                blurRadius: 14,
+                spreadRadius: 1)
+          ]
+              : null,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: active ? const Color(0xFF818CF8) : Colors.white.withOpacity(.3),
-              size: 28,
-            ),
-            if (active) ...[
-              const SizedBox(height: 4),
-              Container(
-                width: 4,
-                height: 4,
-                decoration: const BoxDecoration(color: Color(0xFF818CF8), shape: BoxShape.circle),
-              ),
-            ],
-          ],
+        child: Icon(
+          icon,
+          color: active
+              ? const Color(0xFF818CF8)
+              : Colors.white.withOpacity(0.3),
+          size: 26,
         ),
       ),
     );
