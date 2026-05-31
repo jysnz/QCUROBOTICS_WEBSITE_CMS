@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+part 'member_form.dart';
 
 class Members extends StatefulWidget {
   const Members({super.key});
@@ -12,6 +15,8 @@ class _MembersState extends State<Members> {
   final _supabase = Supabase.instance.client;
 
   late Future<_MembersPageData> _membersFuture;
+  int? _selectedSeasonId;
+  bool _isEditingSelectedSeason = false;
 
   @override
   void initState() {
@@ -47,6 +52,12 @@ class _MembersState extends State<Members> {
       _supabase
           .from('media_team')
           .select('id, name, position, image_url, is_active'),
+      _supabase
+          .from('teams')
+          .select('id, team_name, team_number, team_code, is_active')
+          .order('team_number'),
+      _supabase.from('seasons').select('id, season_name').order('id'),
+      _supabase.from('roles').select('id, role_name').order('role_name'),
     ]);
 
     final assignments = _asMapList(results[0]);
@@ -56,6 +67,15 @@ class _MembersState extends State<Members> {
       ..sort(
         (a, b) => _stringValue(a['name']).compareTo(_stringValue(b['name'])),
       );
+    final teams = _asMapList(
+      results[4],
+    ).map(_TeamOption.fromRow).where((team) => team.id != null).toList();
+    final seasons = _asMapList(
+      results[5],
+    ).map(_SeasonOption.fromRow).where((season) => season.id != null).toList();
+    final roles = _asMapList(
+      results[6],
+    ).map(_RoleOption.fromRow).where((role) => role.id != null).toList();
 
     final rolesByMemberId = <int, List<String>>{};
     for (final row in roleRows) {
@@ -103,6 +123,9 @@ class _MembersState extends State<Members> {
       team.players.add(
         _TeamPlayer(
           id: memberId,
+          assignmentId: _intValue(row['id']),
+          teamId: teamId,
+          seasonId: seasonId,
           name: _stringValue(memberMap['name']),
           imageUrl: _nullableString(memberMap['profile_image_url']),
           isActive: memberMap['is_active'] == true,
@@ -112,24 +135,70 @@ class _MembersState extends State<Members> {
       );
     }
 
-    final seasons = seasonsById.values.toList()
+    final seasonGroups = seasonsById.values.toList()
       ..sort((a, b) => a.name.compareTo(b.name));
-    for (final season in seasons) {
+    for (final season in seasonGroups) {
       for (final team in season.teamsById.values) {
         team.players.sort((a, b) => a.name.compareTo(b.name));
       }
     }
 
     return _MembersPageData(
-      seasons: seasons,
+      seasons: seasonGroups,
       members: members,
       mediaTeam: mediaTeam,
+      teams: teams,
+      seasonOptions: seasons,
+      roles: roles,
     );
   }
 
   Future<void> _refresh() async {
     setState(() => _membersFuture = _loadMembersData());
     await _membersFuture;
+  }
+
+  Future<void> _reload() async {
+    if (!mounted) return;
+    setState(() => _membersFuture = _loadMembersData());
+  }
+
+  Future<void> _openTeamPlayerForm({
+    required _MembersPageData data,
+    _TeamPlayer? player,
+  }) async {
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _TeamPlayerFormSheet(
+        player: player,
+        teams: data.teams,
+        seasons: data.seasonOptions,
+        roles: data.roles,
+      ),
+    );
+    if (saved == true) await _reload();
+  }
+
+  Future<void> _openGenericMemberForm({Map<String, dynamic>? row}) async {
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _GenericMemberFormSheet(row: row),
+    );
+    if (saved == true) await _reload();
+  }
+
+  Future<void> _openMediaMemberForm({Map<String, dynamic>? row}) async {
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _MediaMemberFormSheet(row: row),
+    );
+    if (saved == true) await _reload();
   }
 
   @override
@@ -144,6 +213,9 @@ class _MembersState extends State<Members> {
               future: _membersFuture,
               builder: (context, snapshot) {
                 final data = snapshot.data;
+                final selectedSeason = data == null
+                    ? null
+                    : _selectedSeason(data);
                 return RefreshIndicator(
                   onRefresh: _refresh,
                   backgroundColor: const Color(0xFF111827),
@@ -184,25 +256,56 @@ class _MembersState extends State<Members> {
                             label: 'Team Players',
                             count: data.playerCount,
                             color: const Color(0xFF6366F1),
+                            onAdd: () => _openTeamPlayerForm(data: data),
                           ),
                         ),
                         if (data.seasons.isEmpty)
                           const SliverToBoxAdapter(
                             child: _EmptyState(text: 'No team players found.'),
                           )
-                        else
-                          SliverList.builder(
-                            itemCount: data.seasons.length,
-                            itemBuilder: (context, index) {
-                              return _SeasonPanel(season: data.seasons[index]);
-                            },
+                        else ...[
+                          SliverToBoxAdapter(
+                            child: _SeasonSelector(
+                              seasons: data.seasons,
+                              selectedSeasonId: selectedSeason?.id,
+                              onChanged: (seasonId) {
+                                if (seasonId == null) return;
+                                setState(() {
+                                  _selectedSeasonId = seasonId;
+                                  _isEditingSelectedSeason = false;
+                                });
+                              },
+                            ),
                           ),
+                          if (selectedSeason == null)
+                            const SliverToBoxAdapter(
+                              child: _EmptyState(text: 'Select a season.'),
+                            )
+                          else
+                            SliverToBoxAdapter(
+                              child: _SeasonPanel(
+                                season: selectedSeason,
+                                isEditing: _isEditingSelectedSeason,
+                                onToggleEditing: () {
+                                  setState(
+                                    () => _isEditingSelectedSeason =
+                                        !_isEditingSelectedSeason,
+                                  );
+                                },
+                                onEditPlayer: (player) => _openTeamPlayerForm(
+                                  data: data,
+                                  player: player,
+                                ),
+                              ),
+                            ),
+                        ],
                         SliverToBoxAdapter(
                           child: _SectionHeader(
                             label: 'Members',
                             count: data.members.length,
                             color: const Color(0xFF10B981),
                             topPadding: 28,
+                            onAdd: _openGenericMemberForm,
                           ),
                         ),
                         if (data.members.isEmpty)
@@ -215,6 +318,9 @@ class _MembersState extends State<Members> {
                             itemBuilder: (context, index) {
                               return _GenericMemberCard(
                                 row: data.members[index],
+                                onEdit: () => _openGenericMemberForm(
+                                  row: data.members[index],
+                                ),
                               );
                             },
                           ),
@@ -224,6 +330,7 @@ class _MembersState extends State<Members> {
                             count: data.mediaTeam.length,
                             color: const Color(0xFFEC4899),
                             topPadding: 28,
+                            onAdd: _openMediaMemberForm,
                           ),
                         ),
                         if (data.mediaTeam.isEmpty)
@@ -236,6 +343,9 @@ class _MembersState extends State<Members> {
                             itemBuilder: (context, index) {
                               return _MediaMemberCard(
                                 row: data.mediaTeam[index],
+                                onEdit: () => _openMediaMemberForm(
+                                  row: data.mediaTeam[index],
+                                ),
                               );
                             },
                           ),
@@ -251,17 +361,36 @@ class _MembersState extends State<Members> {
       ),
     );
   }
+
+  _SeasonGroup? _selectedSeason(_MembersPageData data) {
+    if (data.seasons.isEmpty) return null;
+
+    final selectedId = _selectedSeasonId;
+    if (selectedId != null) {
+      for (final season in data.seasons) {
+        if (season.id == selectedId) return season;
+      }
+    }
+
+    return data.seasons.first;
+  }
 }
 
 class _MembersPageData {
   final List<_SeasonGroup> seasons;
   final List<Map<String, dynamic>> members;
   final List<Map<String, dynamic>> mediaTeam;
+  final List<_TeamOption> teams;
+  final List<_SeasonOption> seasonOptions;
+  final List<_RoleOption> roles;
 
   const _MembersPageData({
     required this.seasons,
     required this.members,
     required this.mediaTeam,
+    required this.teams,
+    required this.seasonOptions,
+    required this.roles,
   });
 
   int get playerCount {
@@ -315,6 +444,9 @@ class _TeamGroup {
 
 class _TeamPlayer {
   final int id;
+  final int? assignmentId;
+  final int teamId;
+  final int seasonId;
   final String name;
   final String? imageUrl;
   final bool isActive;
@@ -323,12 +455,61 @@ class _TeamPlayer {
 
   const _TeamPlayer({
     required this.id,
+    required this.assignmentId,
+    required this.teamId,
+    required this.seasonId,
     required this.name,
     required this.imageUrl,
     required this.isActive,
     required this.isGraduated,
     required this.roles,
   });
+}
+
+class _TeamOption {
+  final int? id;
+  final String name;
+
+  const _TeamOption({required this.id, required this.name});
+
+  factory _TeamOption.fromRow(Map<String, dynamic> row) {
+    final id = _intValue(row['id']);
+    final number = _intValue(row['team_number']);
+    final code = _stringValue(row['team_code']);
+    final name = _displayTeamName(row);
+    final meta = <String>[
+      if (number != null) 'Team $number',
+      if (code.isNotEmpty) code,
+    ].join(' | ');
+
+    return _TeamOption(id: id, name: meta.isEmpty ? name : '$name ($meta)');
+  }
+}
+
+class _SeasonOption {
+  final int? id;
+  final String name;
+
+  const _SeasonOption({required this.id, required this.name});
+
+  factory _SeasonOption.fromRow(Map<String, dynamic> row) {
+    final id = _intValue(row['id']);
+    return _SeasonOption(id: id, name: _displaySeasonName(row, id ?? 0));
+  }
+}
+
+class _RoleOption {
+  final int? id;
+  final String name;
+
+  const _RoleOption({required this.id, required this.name});
+
+  factory _RoleOption.fromRow(Map<String, dynamic> row) {
+    return _RoleOption(
+      id: _intValue(row['id']),
+      name: _stringValue(row['role_name']),
+    );
+  }
 }
 
 class _MembersBackground extends StatelessWidget {
@@ -432,12 +613,14 @@ class _SectionHeader extends StatelessWidget {
   final int count;
   final Color color;
   final double topPadding;
+  final VoidCallback? onAdd;
 
   const _SectionHeader({
     required this.label,
     required this.count,
     required this.color,
     this.topPadding = 18,
+    this.onAdd,
   });
 
   @override
@@ -467,7 +650,45 @@ class _SectionHeader extends StatelessWidget {
             ),
           ),
           _CountPill(count: count, color: color),
+          if (onAdd != null) ...[
+            const SizedBox(width: 8),
+            _SmallIconButton(
+              icon: Icons.add_rounded,
+              color: color,
+              onTap: onAdd!,
+            ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+class _SmallIconButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _SmallIconButton({
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: 0.28)),
+        ),
+        child: Icon(icon, color: color, size: 20),
       ),
     );
   }
@@ -500,10 +721,76 @@ class _CountPill extends StatelessWidget {
   }
 }
 
+class _SeasonSelector extends StatelessWidget {
+  final List<_SeasonGroup> seasons;
+  final int? selectedSeasonId;
+  final ValueChanged<int?> onChanged;
+
+  const _SeasonSelector({
+    required this.seasons,
+    required this.selectedSeasonId,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: _GlassCard(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.calendar_month_rounded,
+              color: Color(0xFF818CF8),
+              size: 22,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<int>(
+                  value: selectedSeasonId,
+                  isExpanded: true,
+                  dropdownColor: const Color(0xFF111827),
+                  iconEnabledColor: const Color(0xFF818CF8),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                  items: [
+                    for (final season in seasons)
+                      DropdownMenuItem(
+                        value: season.id,
+                        child: Text(
+                          season.name,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: onChanged,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SeasonPanel extends StatelessWidget {
   final _SeasonGroup season;
+  final bool isEditing;
+  final VoidCallback onToggleEditing;
+  final ValueChanged<_TeamPlayer> onEditPlayer;
 
-  const _SeasonPanel({required this.season});
+  const _SeasonPanel({
+    required this.season,
+    required this.isEditing,
+    required this.onToggleEditing,
+    required this.onEditPlayer,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -532,11 +819,22 @@ class _SeasonPanel extends StatelessWidget {
                     ),
                   ),
                 ),
+                _SmallIconButton(
+                  icon: isEditing ? Icons.check_rounded : Icons.edit_rounded,
+                  color: isEditing
+                      ? const Color(0xFF10B981)
+                      : const Color(0xFF818CF8),
+                  onTap: onToggleEditing,
+                ),
               ],
             ),
             const SizedBox(height: 14),
             for (final team in season.teams) ...[
-              _TeamPanel(team: team),
+              _TeamPanel(
+                team: team,
+                showEditActions: isEditing,
+                onEditPlayer: onEditPlayer,
+              ),
               if (team != season.teams.last) const SizedBox(height: 12),
             ],
           ],
@@ -548,8 +846,14 @@ class _SeasonPanel extends StatelessWidget {
 
 class _TeamPanel extends StatelessWidget {
   final _TeamGroup team;
+  final bool showEditActions;
+  final ValueChanged<_TeamPlayer> onEditPlayer;
 
-  const _TeamPanel({required this.team});
+  const _TeamPanel({
+    required this.team,
+    required this.showEditActions,
+    required this.onEditPlayer,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -610,7 +914,11 @@ class _TeamPanel extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           for (final player in team.players) ...[
-            _PlayerTile(player: player),
+            _PlayerTile(
+              player: player,
+              showEditAction: showEditActions,
+              onEdit: () => onEditPlayer(player),
+            ),
             if (player != team.players.last) const SizedBox(height: 9),
           ],
         ],
@@ -621,8 +929,14 @@ class _TeamPanel extends StatelessWidget {
 
 class _PlayerTile extends StatelessWidget {
   final _TeamPlayer player;
+  final bool showEditAction;
+  final VoidCallback onEdit;
 
-  const _PlayerTile({required this.player});
+  const _PlayerTile({
+    required this.player,
+    required this.showEditAction,
+    required this.onEdit,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -657,6 +971,14 @@ class _PlayerTile extends StatelessWidget {
                       label: 'Active',
                       color: Color(0xFF10B981),
                     ),
+                  if (showEditAction) ...[
+                    const SizedBox(width: 6),
+                    _SmallIconButton(
+                      icon: Icons.edit_rounded,
+                      color: const Color(0xFF818CF8),
+                      onTap: onEdit,
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 6),
@@ -680,8 +1002,9 @@ class _PlayerTile extends StatelessWidget {
 
 class _GenericMemberCard extends StatelessWidget {
   final Map<String, dynamic> row;
+  final VoidCallback onEdit;
 
-  const _GenericMemberCard({required this.row});
+  const _GenericMemberCard({required this.row, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -725,6 +1048,11 @@ class _GenericMemberCard extends StatelessWidget {
                 ],
               ),
             ),
+            _SmallIconButton(
+              icon: Icons.edit_rounded,
+              color: const Color(0xFF34D399),
+              onTap: onEdit,
+            ),
           ],
         ),
       ),
@@ -734,8 +1062,9 @@ class _GenericMemberCard extends StatelessWidget {
 
 class _MediaMemberCard extends StatelessWidget {
   final Map<String, dynamic> row;
+  final VoidCallback onEdit;
 
-  const _MediaMemberCard({required this.row});
+  const _MediaMemberCard({required this.row, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -783,6 +1112,12 @@ class _MediaMemberCard extends StatelessWidget {
             ),
             if (isActive)
               const _StatusPill(label: 'Active', color: Color(0xFFEC4899)),
+            const SizedBox(width: 8),
+            _SmallIconButton(
+              icon: Icons.edit_rounded,
+              color: const Color(0xFFEC4899),
+              onTap: onEdit,
+            ),
           ],
         ),
       ),
@@ -1001,6 +1336,844 @@ class _ErrorState extends StatelessWidget {
   }
 }
 
+class _TeamPlayerFormSheet extends StatefulWidget {
+  final _TeamPlayer? player;
+  final List<_TeamOption> teams;
+  final List<_SeasonOption> seasons;
+  final List<_RoleOption> roles;
+
+  const _TeamPlayerFormSheet({
+    required this.player,
+    required this.teams,
+    required this.seasons,
+    required this.roles,
+  });
+
+  @override
+  State<_TeamPlayerFormSheet> createState() => _TeamPlayerFormSheetState();
+}
+
+class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
+  final _supabase = Supabase.instance.client;
+  final _imagePicker = ImagePicker();
+  final _nameController = TextEditingController();
+  final _imageController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  int? _teamId;
+  int? _seasonId;
+  late bool _isActive;
+  late bool _isGraduated;
+  late Set<int> _roleIds;
+  bool _isSaving = false;
+  bool _isUploadingPicture = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final player = widget.player;
+    _nameController.text = player?.name ?? '';
+    _imageController.text = player?.imageUrl ?? '';
+    _teamId = player?.teamId ?? widget.teams.firstOrNull?.id;
+    _seasonId = player?.seasonId ?? widget.seasons.firstOrNull?.id;
+    _isActive = player?.isActive ?? true;
+    _isGraduated = player?.isGraduated ?? false;
+    _roleIds = widget.roles
+        .where((role) => player?.roles.contains(role.name) ?? false)
+        .map((role) => role.id)
+        .whereType<int>()
+        .toSet();
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _imageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_teamId == null || _seasonId == null) {
+      _showError('Select a team and season first.');
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      final payload = {
+        'name': _nameController.text.trim(),
+        'profile_image_url': _nullableString(_imageController.text),
+        'is_active': _isActive,
+        'is_graduated': _isGraduated,
+      };
+
+      final player = widget.player;
+      late final int memberId;
+      if (player == null) {
+        final inserted = await _supabase
+            .from('team_members')
+            .insert(payload)
+            .select('id')
+            .single();
+        memberId = _intValue(inserted['id'])!;
+      } else {
+        memberId = player.id;
+        await _supabase.from('team_members').update(payload).eq('id', memberId);
+      }
+
+      final assignmentPayload = {
+        'member_id': memberId,
+        'team_id': _teamId,
+        'season_id': _seasonId,
+      };
+      if (player?.assignmentId == null) {
+        await _supabase.from('member_team_seasons').insert(assignmentPayload);
+      } else {
+        await _supabase
+            .from('member_team_seasons')
+            .update(assignmentPayload)
+            .eq('id', player!.assignmentId!);
+      }
+
+      await _supabase.from('member_roles').delete().eq('member_id', memberId);
+      if (_roleIds.isNotEmpty) {
+        await _supabase.from('member_roles').insert([
+          for (final roleId in _roleIds)
+            {'member_id': memberId, 'role_id': roleId},
+        ]);
+      }
+
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (error) {
+      _showError(error.toString());
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _pickProfilePicture() async {
+    final image = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 88,
+    );
+    if (image == null) return;
+
+    setState(() => _isUploadingPicture = true);
+    try {
+      final url = await _uploadMemberPicture(
+        supabase: _supabase,
+        image: image,
+        folder: 'team_players',
+      );
+      _imageController.text = url;
+    } catch (error) {
+      _showError(error.toString());
+    } finally {
+      if (mounted) setState(() => _isUploadingPicture = false);
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: const Color(0xFFB91C1C),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.player != null;
+    return _FormSheetScaffold(
+      title: isEditing ? 'Edit Team Player' : 'Add Team Player',
+      isSaving: _isSaving,
+      onSave: _save,
+      child: Form(
+        key: _formKey,
+        child: Column(
+          children: [
+            _TextFieldInput(
+              controller: _nameController,
+              label: 'Name',
+              validator: _requiredValidator,
+            ),
+            const SizedBox(height: 12),
+            _TextFieldInput(
+              controller: _imageController,
+              label: 'Profile image URL',
+            ),
+            const SizedBox(height: 10),
+            _PhotoPickerInput(
+              imageUrl: _nullableString(_imageController.text),
+              isUploading: _isUploadingPicture,
+              onPick: _pickProfilePicture,
+            ),
+            const SizedBox(height: 12),
+            _DropdownInput<int>(
+              label: 'Team',
+              value: _teamId,
+              items: [
+                for (final team in widget.teams)
+                  DropdownMenuItem(value: team.id, child: Text(team.name)),
+              ],
+              onChanged: (value) => setState(() => _teamId = value),
+            ),
+            const SizedBox(height: 12),
+            _DropdownInput<int>(
+              label: 'Season',
+              value: _seasonId,
+              items: [
+                for (final season in widget.seasons)
+                  DropdownMenuItem(value: season.id, child: Text(season.name)),
+              ],
+              onChanged: (value) => setState(() => _seasonId = value),
+            ),
+            const SizedBox(height: 10),
+            _SwitchInput(
+              label: 'Active',
+              value: _isActive,
+              onChanged: (value) => setState(() => _isActive = value),
+            ),
+            _SwitchInput(
+              label: 'Graduated',
+              value: _isGraduated,
+              onChanged: (value) => setState(() => _isGraduated = value),
+            ),
+            const SizedBox(height: 10),
+            _RoleSelector(
+              roles: widget.roles,
+              selectedIds: _roleIds,
+              onChanged: (ids) => setState(() => _roleIds = ids),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MediaMemberFormSheet extends StatefulWidget {
+  final Map<String, dynamic>? row;
+
+  const _MediaMemberFormSheet({required this.row});
+
+  @override
+  State<_MediaMemberFormSheet> createState() => _MediaMemberFormSheetState();
+}
+
+class _MediaMemberFormSheetState extends State<_MediaMemberFormSheet> {
+  final _supabase = Supabase.instance.client;
+  final _imagePicker = ImagePicker();
+  final _nameController = TextEditingController();
+  final _positionController = TextEditingController();
+  final _imageController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  late bool _isActive;
+  bool _isSaving = false;
+  bool _isUploadingPicture = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final row = widget.row;
+    _nameController.text = _stringValue(row?['name']);
+    _positionController.text = _stringValue(row?['position']);
+    _imageController.text = _stringValue(row?['image_url']);
+    _isActive = row?['is_active'] == true || row == null;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _positionController.dispose();
+    _imageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSaving = true);
+    try {
+      final payload = {
+        'name': _nameController.text.trim(),
+        'position': _nullableString(_positionController.text),
+        'image_url': _nullableString(_imageController.text),
+        'is_active': _isActive,
+      };
+      final id = _intValue(widget.row?['id']);
+      if (id == null) {
+        await _supabase.from('media_team').insert(payload);
+      } else {
+        await _supabase.from('media_team').update(payload).eq('id', id);
+      }
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (error) {
+      _showError(error.toString());
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _pickProfilePicture() async {
+    final image = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 88,
+    );
+    if (image == null) return;
+
+    setState(() => _isUploadingPicture = true);
+    try {
+      final url = await _uploadMemberPicture(
+        supabase: _supabase,
+        image: image,
+        folder: 'media_team',
+      );
+      _imageController.text = url;
+    } catch (error) {
+      _showError(error.toString());
+    } finally {
+      if (mounted) setState(() => _isUploadingPicture = false);
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: const Color(0xFFB91C1C),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.row != null;
+    return _FormSheetScaffold(
+      title: isEditing ? 'Edit Media Member' : 'Add Media Member',
+      isSaving: _isSaving,
+      onSave: _save,
+      child: Form(
+        key: _formKey,
+        child: Column(
+          children: [
+            _TextFieldInput(
+              controller: _nameController,
+              label: 'Name',
+              validator: _requiredValidator,
+            ),
+            const SizedBox(height: 12),
+            _TextFieldInput(controller: _positionController, label: 'Position'),
+            const SizedBox(height: 12),
+            _TextFieldInput(controller: _imageController, label: 'Image URL'),
+            const SizedBox(height: 10),
+            _PhotoPickerInput(
+              imageUrl: _nullableString(_imageController.text),
+              isUploading: _isUploadingPicture,
+              onPick: _pickProfilePicture,
+            ),
+            const SizedBox(height: 10),
+            _SwitchInput(
+              label: 'Active',
+              value: _isActive,
+              onChanged: (value) => setState(() => _isActive = value),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GenericMemberFormSheet extends StatefulWidget {
+  final Map<String, dynamic>? row;
+
+  const _GenericMemberFormSheet({required this.row});
+
+  @override
+  State<_GenericMemberFormSheet> createState() =>
+      _GenericMemberFormSheetState();
+}
+
+class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
+  final _supabase = Supabase.instance.client;
+  final _imagePicker = ImagePicker();
+  final _nameController = TextEditingController();
+  final _subtitleController = TextEditingController();
+  final _imageController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  late final String _nameKey;
+  late final String? _subtitleKey;
+  late final String? _imageKey;
+  late bool _isActive;
+  bool _isSaving = false;
+  bool _isUploadingPicture = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final row = widget.row;
+    _nameKey =
+        _firstExistingKey(row, ['name', 'full_name', 'username', 'email']) ??
+        'name';
+    _subtitleKey = _firstExistingKey(row, [
+      'role',
+      'position',
+      'email',
+      'status',
+    ]);
+    _imageKey =
+        _firstExistingKey(row, [
+          'profile_image_url',
+          'image_url',
+          'avatar_url',
+        ]) ??
+        'image_url';
+    _nameController.text = _stringValue(row?[_nameKey]);
+    if (_subtitleKey != null) {
+      _subtitleController.text = _stringValue(row?[_subtitleKey]);
+    }
+    if (_imageKey != null) {
+      _imageController.text = _stringValue(row?[_imageKey]);
+    }
+    _isActive = row?['is_active'] == true || row == null;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _subtitleController.dispose();
+    _imageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSaving = true);
+    try {
+      final payload = <String, dynamic>{_nameKey: _nameController.text.trim()};
+      final imageKey = _imageKey;
+      if (imageKey != null) {
+        payload[imageKey] = _nullableString(_imageController.text);
+      }
+
+      if (widget.row != null) {
+        final subtitleKey = _subtitleKey;
+        if (subtitleKey != null) {
+          payload[subtitleKey] = _nullableString(_subtitleController.text);
+        }
+        if (widget.row!.containsKey('is_active')) {
+          payload['is_active'] = _isActive;
+        }
+      }
+
+      final id = _intValue(widget.row?['id']);
+      if (id == null) {
+        await _supabase.from('members').insert(payload);
+      } else {
+        await _supabase.from('members').update(payload).eq('id', id);
+      }
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (error) {
+      _showError(error.toString());
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _pickProfilePicture() async {
+    final image = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 88,
+    );
+    if (image == null) return;
+
+    setState(() => _isUploadingPicture = true);
+    try {
+      final url = await _uploadMemberPicture(
+        supabase: _supabase,
+        image: image,
+        folder: 'members',
+      );
+      _imageController.text = url;
+    } catch (error) {
+      _showError(error.toString());
+    } finally {
+      if (mounted) setState(() => _isUploadingPicture = false);
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: const Color(0xFFB91C1C),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.row != null;
+    return _FormSheetScaffold(
+      title: isEditing ? 'Edit Member' : 'Add Member',
+      isSaving: _isSaving,
+      onSave: _save,
+      child: Form(
+        key: _formKey,
+        child: Column(
+          children: [
+            _TextFieldInput(
+              controller: _nameController,
+              label: 'Name',
+              validator: _requiredValidator,
+            ),
+            if (_subtitleKey case final subtitleKey?) ...[
+              const SizedBox(height: 12),
+              _TextFieldInput(
+                controller: _subtitleController,
+                label: _fieldLabel(subtitleKey),
+              ),
+            ],
+            if (_imageKey case final imageKey?) ...[
+              const SizedBox(height: 12),
+              _TextFieldInput(
+                controller: _imageController,
+                label: _fieldLabel(imageKey),
+              ),
+              const SizedBox(height: 10),
+              _PhotoPickerInput(
+                imageUrl: _nullableString(_imageController.text),
+                isUploading: _isUploadingPicture,
+                onPick: _pickProfilePicture,
+              ),
+            ],
+            if (widget.row?.containsKey('is_active') ?? false) ...[
+              const SizedBox(height: 10),
+              _SwitchInput(
+                label: 'Active',
+                value: _isActive,
+                onChanged: (value) => setState(() => _isActive = value),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TextFieldInput extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final String? Function(String?)? validator;
+
+  const _TextFieldInput({
+    required this.controller,
+    required this.label,
+    this.validator,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      validator: validator,
+      style: const TextStyle(color: Colors.white),
+      decoration: _inputDecoration(label),
+    );
+  }
+}
+
+class _PhotoPickerInput extends StatelessWidget {
+  final String? imageUrl;
+  final bool isUploading;
+  final VoidCallback onPick;
+
+  const _PhotoPickerInput({
+    required this.imageUrl,
+    required this.isUploading,
+    required this.onPick,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.045),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Row(
+        children: [
+          _Avatar(imageUrl: imageUrl, name: 'Profile Picture', size: 52),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Profile picture',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  isUploading
+                      ? 'Uploading to member_pictures...'
+                      : 'Choose from gallery',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.48),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _SmallIconButton(
+            icon: isUploading
+                ? Icons.hourglass_top_rounded
+                : Icons.photo_library_rounded,
+            color: const Color(0xFF818CF8),
+            onTap: isUploading ? () {} : onPick,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DropdownInput<T> extends StatelessWidget {
+  final String label;
+  final T? value;
+  final List<DropdownMenuItem<T>> items;
+  final ValueChanged<T?> onChanged;
+
+  const _DropdownInput({
+    required this.label,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<T>(
+      initialValue: value,
+      items: items,
+      onChanged: onChanged,
+      isExpanded: true,
+      dropdownColor: const Color(0xFF111827),
+      style: const TextStyle(color: Colors.white),
+      decoration: _inputDecoration(label),
+    );
+  }
+}
+
+class _SwitchInput extends StatelessWidget {
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _SwitchInput({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SwitchListTile.adaptive(
+      value: value,
+      onChanged: onChanged,
+      contentPadding: EdgeInsets.zero,
+      title: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      activeThumbColor: const Color(0xFF818CF8),
+    );
+  }
+}
+
+class _RoleSelector extends StatelessWidget {
+  final List<_RoleOption> roles;
+  final Set<int> selectedIds;
+  final ValueChanged<Set<int>> onChanged;
+
+  const _RoleSelector({
+    required this.roles,
+    required this.selectedIds,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (roles.isEmpty) {
+      return Text(
+        'No roles available.',
+        style: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Roles',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.7),
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final role in roles)
+              Builder(
+                builder: (context) {
+                  final isSelected = selectedIds.contains(role.id);
+                  return FilterChip(
+                    label: Text(
+                      role.name,
+                      style: TextStyle(
+                        color: isSelected
+                            ? const Color(0xFFE0E7FF)
+                            : Colors.white.withValues(alpha: 0.72),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    selected: isSelected,
+                    onSelected: (selected) {
+                      final id = role.id;
+                      if (id == null) return;
+                      final next = Set<int>.from(selectedIds);
+                      if (selected) {
+                        next.add(id);
+                      } else {
+                        next.remove(id);
+                      }
+                      onChanged(next);
+                    },
+                    selectedColor: const Color(
+                      0xFF6366F1,
+                    ).withValues(alpha: 0.26),
+                    backgroundColor: const Color(
+                      0xFF111827,
+                    ).withValues(alpha: 0.96),
+                    checkmarkColor: const Color(0xFFA5B4FC),
+                    side: BorderSide(
+                      color: isSelected
+                          ? const Color(0xFF818CF8).withValues(alpha: 0.62)
+                          : Colors.white.withValues(alpha: 0.09),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  );
+                },
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+InputDecoration _inputDecoration(String label) {
+  return InputDecoration(
+    labelText: label,
+    labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.56)),
+    filled: true,
+    fillColor: Colors.white.withValues(alpha: 0.055),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: Color(0xFF818CF8)),
+    ),
+    errorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: Color(0xFFF87171)),
+    ),
+    focusedErrorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: Color(0xFFF87171)),
+    ),
+  );
+}
+
+String? _requiredValidator(String? value) {
+  if (value == null || value.trim().isEmpty) return 'Required';
+  return null;
+}
+
+Future<String> _uploadMemberPicture({
+  required SupabaseClient supabase,
+  required XFile image,
+  required String folder,
+}) async {
+  final bytes = await image.readAsBytes();
+  final extension = _fileExtension(image.name);
+  final safeFolder = folder.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+  final fileName =
+      '$safeFolder/${DateTime.now().microsecondsSinceEpoch}$extension';
+
+  await supabase.storage
+      .from('member_pictures')
+      .uploadBinary(
+        fileName,
+        bytes,
+        fileOptions: FileOptions(
+          contentType: _contentTypeForExtension(extension),
+          upsert: true,
+        ),
+      );
+
+  return supabase.storage.from('member_pictures').getPublicUrl(fileName);
+}
+
+String _fileExtension(String fileName) {
+  final dotIndex = fileName.lastIndexOf('.');
+  if (dotIndex == -1 || dotIndex == fileName.length - 1) return '.jpg';
+  return fileName.substring(dotIndex).toLowerCase();
+}
+
+String _contentTypeForExtension(String extension) {
+  switch (extension.toLowerCase()) {
+    case '.png':
+      return 'image/png';
+    case '.webp':
+      return 'image/webp';
+    case '.gif':
+      return 'image/gif';
+    case '.heic':
+      return 'image/heic';
+    case '.jpg':
+    case '.jpeg':
+    default:
+      return 'image/jpeg';
+  }
+}
+
 List<Map<String, dynamic>> _asMapList(Object? value) {
   if (value is! List) return const <Map<String, dynamic>>[];
 
@@ -1059,6 +2232,22 @@ String _displayGenericSubtitle(Map<String, dynamic> row) {
     if (value.isNotEmpty && value != _displayGenericName(row)) return value;
   }
   return '';
+}
+
+String? _firstExistingKey(Map<String, dynamic>? row, List<String> keys) {
+  if (row == null) return null;
+  for (final key in keys) {
+    if (row.containsKey(key)) return key;
+  }
+  return null;
+}
+
+String _fieldLabel(String key) {
+  return key
+      .split('_')
+      .where((part) => part.isNotEmpty)
+      .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+      .join(' ');
 }
 
 String _initials(String value) {
