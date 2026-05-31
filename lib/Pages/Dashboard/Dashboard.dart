@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'dart:ui';
+import 'package:qcurobotics_management_app/Pages/Members/Members.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class Dashboard extends StatefulWidget {
@@ -9,10 +9,28 @@ class Dashboard extends StatefulWidget {
   State<Dashboard> createState() => _DashboardState();
 }
 
-class _DashboardState extends State<Dashboard>
-    with SingleTickerProviderStateMixin {
+class _DashboardOverviewData {
+  final int totalMembers;
+  final int totalTournaments;
+  final int totalAchievements;
+  final int totalSponsors;
+  final int totalTeams;
+
+  const _DashboardOverviewData({
+    required this.totalMembers,
+    required this.totalTournaments,
+    required this.totalAchievements,
+    required this.totalSponsors,
+    required this.totalTeams,
+  });
+}
+
+class _DashboardState extends State<Dashboard> {
+  static const Duration _overviewCacheDuration = Duration(minutes: 5);
+  static _DashboardOverviewData? _cachedOverview;
+  static DateTime? _cachedOverviewAt;
+
   int _selectedIndex = 0;
-  late AnimationController _bgController;
   final _supabase = Supabase.instance.client;
 
   int _totalMembers = 0;
@@ -25,16 +43,50 @@ class _DashboardState extends State<Dashboard>
   @override
   void initState() {
     super.initState();
-    _bgController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 15),
-    )..repeat(reverse: true);
-    _fetchOverviewData();
+    _loadOverviewData();
+  }
+
+  bool get _hasFreshOverviewCache {
+    final cachedAt = _cachedOverviewAt;
+    if (_cachedOverview == null || cachedAt == null) return false;
+    return DateTime.now().difference(cachedAt) < _overviewCacheDuration;
+  }
+
+  void _applyOverviewData(
+    _DashboardOverviewData data, {
+    required bool loading,
+  }) {
+    _totalMembers = data.totalMembers;
+    _totalTournaments = data.totalTournaments;
+    _totalAchievements = data.totalAchievements;
+    _totalSponsors = data.totalSponsors;
+    _totalTeams = data.totalTeams;
+    _isLoading = loading;
+  }
+
+  Future<void> _loadOverviewData({bool forceRefresh = false}) async {
+    if (!mounted) return;
+
+    final cachedData = _cachedOverview;
+    if (!forceRefresh && _hasFreshOverviewCache && cachedData != null) {
+      setState(() => _applyOverviewData(cachedData, loading: false));
+      debugPrint('Using cached dashboard overview data.');
+      return;
+    }
+
+    await _fetchOverviewData();
   }
 
   Future<void> _fetchOverviewData() async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
+    setState(() {
+      final cachedData = _cachedOverview;
+      if (cachedData != null) {
+        _applyOverviewData(cachedData, loading: false);
+      } else {
+        _isLoading = true;
+      }
+    });
     debugPrint('🔄 Starting fetch...');
     try {
       debugPrint('📡 Fetching team_members...');
@@ -62,33 +114,35 @@ class _DashboardState extends State<Dashboard>
       debugPrint('✅ sponsors count: $sponsorsRes');
 
       debugPrint('📡 Fetching active teams...');
-      final activeTeamsRes =
-      await _supabase.from('teams').count().eq('is_active', true);
+      final activeTeamsRes = await _supabase
+          .from('teams')
+          .count()
+          .eq('is_active', true);
       debugPrint('✅ active teams count: $activeTeamsRes');
 
       if (mounted) {
+        final overviewData = _DashboardOverviewData(
+          totalMembers: teamMembersRes + mediaTeamRes + membersRes,
+          totalTournaments: tournamentsRes,
+          totalAchievements: achievementsRes,
+          totalSponsors: sponsorsRes,
+          totalTeams: activeTeamsRes,
+        );
+        _cachedOverview = overviewData;
+        _cachedOverviewAt = DateTime.now();
+
         setState(() {
-          _totalMembers = teamMembersRes + mediaTeamRes + membersRes;
-          _totalTournaments = tournamentsRes;
-          _totalAchievements = achievementsRes;
-          _totalSponsors = sponsorsRes;
-          _totalTeams = activeTeamsRes;
-          _isLoading = false;
+          _applyOverviewData(overviewData, loading: false);
         });
         debugPrint(
-            '✅ State updated — Members: $_totalMembers, Tournaments: $_totalTournaments, Achievements: $_totalAchievements, Sponsors: $_totalSponsors, Teams: $_totalTeams');
+          '✅ State updated — Members: $_totalMembers, Tournaments: $_totalTournaments, Achievements: $_totalAchievements, Sponsors: $_totalSponsors, Teams: $_totalTeams',
+        );
       }
     } catch (e, stackTrace) {
       debugPrint('❌ ERROR: $e');
       debugPrint('📋 StackTrace: $stackTrace');
       if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  @override
-  void dispose() {
-    _bgController.dispose();
-    super.dispose();
   }
 
   String _getGreeting() {
@@ -102,142 +156,117 @@ class _DashboardState extends State<Dashboard>
   Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true,
-      backgroundColor: const Color(0xFF080720),
+      backgroundColor: const Color(0xFF0B1020),
       body: Stack(
         children: [
-          // Animated background blobs
-          AnimatedBuilder(
-            animation: _bgController,
-            builder: (context, _) => Stack(
-              children: [
-                Positioned(
-                  top: -80 + (40 * _bgController.value),
-                  right: -60 - (30 * _bgController.value),
-                  child: _GlowBlob(
-                      color: const Color(0xFF6366F1).withOpacity(0.18),
-                      size: 380),
-                ),
-                Positioned(
-                  bottom: 80 - (40 * _bgController.value),
-                  left: -100 + (50 * _bgController.value),
-                  child: _GlowBlob(
-                      color: const Color(0xFFEC4899).withOpacity(0.10),
-                      size: 420),
-                ),
-                Positioned(
-                  top: 300 + (20 * _bgController.value),
-                  right: 100 - (20 * _bgController.value),
-                  child: _GlowBlob(
-                      color: const Color(0xFF06B6D4).withOpacity(0.07),
-                      size: 250),
-                ),
-              ],
-            ),
-          ),
+          const _DashboardBackground(),
 
-          SafeArea(
-            bottom: false,
-            child: RefreshIndicator(
-              onRefresh: _fetchOverviewData,
-              backgroundColor: const Color(0xFF1a1a3e),
-              color: const Color(0xFF6366F1),
-              child: CustomScrollView(
-                physics: const BouncingScrollPhysics(),
-                slivers: [
-                  // Top bar
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-                      child: _TopBar(greeting: _getGreeting()),
-                    ),
-                  ),
-
-                  // Overview header
-                  SliverToBoxAdapter(
-                    child: _SectionHeader(
-                      label: 'Overview',
-                      color: Colors.cyanAccent,
-                    ),
-                  ),
-
-                  // Stats grid (2x2)
-                  SliverPadding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    sliver: SliverGrid(
-                      gridDelegate:
-                      const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        mainAxisSpacing: 14,
-                        crossAxisSpacing: 14,
-                        childAspectRatio: 1.65,
-                      ),
-                      delegate: SliverChildListDelegate([
-                        _StatCard(
-                          title: 'Total Members',
-                          value: _totalMembers.toString(),
-                          icon: Icons.people_alt_rounded,
-                          color: const Color(0xFF6366F1),
-                          isLoading: _isLoading,
-                        ),
-                        _StatCard(
-                          title: 'Tournaments',
-                          value: _totalTournaments.toString(),
-                          icon: Icons.emoji_events_rounded,
-                          color: const Color(0xFFF59E0B),
-                          isLoading: _isLoading,
-                        ),
-                        _StatCard(
-                          title: 'Achievements',
-                          value: _totalAchievements.toString(),
-                          icon: Icons.military_tech_rounded,
-                          color: const Color(0xFF10B981),
-                          isLoading: _isLoading,
-                        ),
-                        _StatCard(
-                          title: 'Sponsors',
-                          value: _totalSponsors.toString(),
-                          icon: Icons.business_center_rounded,
-                          color: const Color(0xFFEC4899),
-                          isLoading: _isLoading,
-                        ),
-                      ]),
-                    ),
-                  ),
-
-                  // Active teams full-width
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-                      child: _StatCard(
-                        title: 'Active Teams',
-                        value: _totalTeams.toString(),
-                        icon: Icons.hub_rounded,
-                        color: const Color(0xFF06B6D4),
-                        isLoading: _isLoading,
-                        fullWidth: true,
+          RepaintBoundary(
+            child: SafeArea(
+              bottom: false,
+              child: RefreshIndicator(
+                onRefresh: () => _loadOverviewData(forceRefresh: true),
+                backgroundColor: const Color(0xFF1a1a3e),
+                color: const Color(0xFF6366F1),
+                child: CustomScrollView(
+                  physics: const ClampingScrollPhysics(),
+                  cacheExtent: 360,
+                  slivers: [
+                    // Top bar
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+                        child: _TopBar(greeting: _getGreeting()),
                       ),
                     ),
-                  ),
 
-                  // Management header
-                  SliverToBoxAdapter(
-                    child: _SectionHeader(
-                      label: 'Management',
-                      color: const Color(0xFF6366F1),
-                      topPadding: 32,
+                    // Overview header
+                    SliverToBoxAdapter(
+                      child: _SectionHeader(
+                        label: 'Overview',
+                        color: Colors.cyanAccent,
+                      ),
                     ),
-                  ),
 
-                  // Management row — 4 in one row
-                  SliverToBoxAdapter(
-                    child: Padding(
+                    // Stats grid (2x2)
+                    SliverPadding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: _ManagementRow(),
+                      sliver: SliverGrid(
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              mainAxisSpacing: 14,
+                              crossAxisSpacing: 14,
+                              childAspectRatio: 1.65,
+                            ),
+                        delegate: SliverChildListDelegate([
+                          _StatCard(
+                            title: 'Total Members',
+                            value: _totalMembers.toString(),
+                            icon: Icons.people_alt_rounded,
+                            color: const Color(0xFF6366F1),
+                            isLoading: _isLoading,
+                          ),
+                          _StatCard(
+                            title: 'Tournaments',
+                            value: _totalTournaments.toString(),
+                            icon: Icons.emoji_events_rounded,
+                            color: const Color(0xFFF59E0B),
+                            isLoading: _isLoading,
+                          ),
+                          _StatCard(
+                            title: 'Achievements',
+                            value: _totalAchievements.toString(),
+                            icon: Icons.military_tech_rounded,
+                            color: const Color(0xFF10B981),
+                            isLoading: _isLoading,
+                          ),
+                          _StatCard(
+                            title: 'Sponsors',
+                            value: _totalSponsors.toString(),
+                            icon: Icons.business_center_rounded,
+                            color: const Color(0xFFEC4899),
+                            isLoading: _isLoading,
+                          ),
+                        ]),
+                      ),
                     ),
-                  ),
 
-                  const SliverToBoxAdapter(child: SizedBox(height: 140)),
-                ],
+                    // Active teams full-width
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                        child: _StatCard(
+                          title: 'Active Teams',
+                          value: _totalTeams.toString(),
+                          icon: Icons.hub_rounded,
+                          color: const Color(0xFF06B6D4),
+                          isLoading: _isLoading,
+                          fullWidth: true,
+                        ),
+                      ),
+                    ),
+
+                    // Management header
+                    SliverToBoxAdapter(
+                      child: _SectionHeader(
+                        label: 'Management',
+                        color: const Color(0xFF6366F1),
+                        topPadding: 32,
+                      ),
+                    ),
+
+                    // Management actions
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 20),
+                        child: _ManagementRow(),
+                      ),
+                    ),
+
+                    const SliverToBoxAdapter(child: SizedBox(height: 140)),
+                  ],
+                ),
               ),
             ),
           ),
@@ -253,20 +282,33 @@ class _DashboardState extends State<Dashboard>
 
 // ── Glow blob ──────────────────────────────────────────────────────────────
 
-class _GlowBlob extends StatelessWidget {
-  final Color color;
-  final double size;
-  const _GlowBlob({required this.color, required this.size});
+class _DashboardBackground extends StatelessWidget {
+  const _DashboardBackground();
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 100, sigmaY: 100),
-        child: Container(color: Colors.transparent),
+    return const RepaintBoundary(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: Alignment.topRight,
+            radius: 1.15,
+            colors: [Color(0x1F6366F1), Color(0x0F14B8A6), Color(0x000B1020)],
+            stops: [0, 0.45, 1],
+          ),
+        ),
+        child: SizedBox.expand(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment.bottomLeft,
+                radius: 1.1,
+                colors: [Color(0x1414B8A6), Color(0x000B1020)],
+                stops: [0, 0.72],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -294,31 +336,35 @@ class _GlassCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(radius),
-        boxShadow: shadows,
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
-            padding: padding,
-            decoration: BoxDecoration(
-              color: tint ?? Colors.white.withOpacity(0.06),
-              borderRadius: BorderRadius.circular(radius),
-              border: Border.all(
-                  color: Colors.white.withOpacity(0.12), width: 1),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Colors.white.withOpacity(0.10),
-                  Colors.white.withOpacity(0.02),
-                ],
+        boxShadow:
+            shadows ??
+            [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
               ),
-            ),
-            child: child,
+            ],
+      ),
+      child: Container(
+        padding: padding,
+        decoration: BoxDecoration(
+          color: tint ?? const Color(0xFF111827).withValues(alpha: 0.88),
+          borderRadius: BorderRadius.circular(radius),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.08),
+            width: 1,
+          ),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white.withValues(alpha: 0.05),
+              Colors.white.withValues(alpha: 0.012),
+            ],
           ),
         ),
+        child: child,
       ),
     );
   }
@@ -349,12 +395,6 @@ class _SectionHeader extends StatelessWidget {
             decoration: BoxDecoration(
               color: color,
               borderRadius: BorderRadius.circular(10),
-              boxShadow: [
-                BoxShadow(
-                    color: color.withOpacity(0.6),
-                    blurRadius: 10,
-                    spreadRadius: 1)
-              ],
             ),
           ),
           const SizedBox(width: 12),
@@ -364,7 +404,7 @@ class _SectionHeader extends StatelessWidget {
               fontSize: 20,
               fontWeight: FontWeight.w900,
               color: Colors.white,
-              letterSpacing: -0.5,
+              letterSpacing: 0,
             ),
           ),
         ],
@@ -388,18 +428,18 @@ class _TopBar extends StatelessWidget {
           decoration: const BoxDecoration(
             shape: BoxShape.circle,
             gradient: LinearGradient(
-                colors: [Color(0xFF6366F1), Color(0xFFEC4899)]),
+              colors: [Color(0xFF6366F1), Color(0xFFEC4899)],
+            ),
           ),
           child: Container(
             decoration: const BoxDecoration(
               shape: BoxShape.circle,
-              color: Color(0xFF080720),
+              color: Color(0xFF0B1020),
             ),
             padding: const EdgeInsets.all(2),
             child: const CircleAvatar(
               radius: 23,
-              backgroundImage:
-              NetworkImage('https://i.pravatar.cc/150?img=11'),
+              backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11'),
             ),
           ),
         ),
@@ -408,18 +448,22 @@ class _TopBar extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(greeting,
-                  style: const TextStyle(
-                      fontSize: 13,
-                      color: Colors.white54,
-                      fontWeight: FontWeight.w500)),
+              Text(
+                greeting,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Colors.white54,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
               const Text(
                 'Super Admin',
                 style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                    letterSpacing: -0.5),
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                  letterSpacing: 0,
+                ),
               ),
             ],
           ),
@@ -429,15 +473,19 @@ class _TopBar extends StatelessWidget {
           radius: 18,
           shadows: [
             BoxShadow(
-                color: const Color(0xFF6366F1).withOpacity(0.2),
-                blurRadius: 16,
-                offset: const Offset(0, 4))
+              color: Colors.black.withValues(alpha: 0.16),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
           ],
           child: Stack(
             clipBehavior: Clip.none,
             children: [
-              const Icon(Icons.notifications_active_outlined,
-                  color: Colors.white, size: 24),
+              const Icon(
+                Icons.notifications_active_outlined,
+                color: Colors.white,
+                size: 24,
+              ),
               Positioned(
                 top: -2,
                 right: -2,
@@ -447,12 +495,6 @@ class _TopBar extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: const Color(0xFFEC4899),
                     shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                          color:
-                          const Color(0xFFEC4899).withOpacity(0.6),
-                          blurRadius: 6)
-                    ],
                   ),
                 ),
               ),
@@ -486,31 +528,25 @@ class _StatCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return _GlassCard(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      radius: 22,
+      radius: 18,
       shadows: [
         BoxShadow(
-            color: color.withOpacity(0.15),
-            blurRadius: 20,
-            offset: const Offset(0, 6)),
-        BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 4)),
+          color: Colors.black.withValues(alpha: 0.16),
+          blurRadius: 14,
+          offset: const Offset(0, 6),
+        ),
       ],
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.14),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: color.withOpacity(0.3), width: 1),
-              boxShadow: [
-                BoxShadow(
-                    color: color.withOpacity(0.2),
-                    blurRadius: 12,
-                    spreadRadius: 1)
-              ],
+              color: color.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: color.withValues(alpha: 0.24),
+                width: 1,
+              ),
             ),
             child: Icon(icon, color: color, size: 22),
           ),
@@ -525,7 +561,7 @@ class _StatCard extends StatelessWidget {
                     height: 22,
                     width: 50,
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.08),
+                      color: Colors.white.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(6),
                     ),
                   )
@@ -536,21 +572,17 @@ class _StatCard extends StatelessWidget {
                       color: Colors.white,
                       fontSize: fullWidth ? 26 : 20,
                       fontWeight: FontWeight.w900,
-                      shadows: [
-                        Shadow(
-                            color: color.withOpacity(0.4),
-                            blurRadius: 8)
-                      ],
                     ),
                   ),
                 const SizedBox(height: 3),
                 Text(
                   title,
                   style: TextStyle(
-                      color: Colors.white.withOpacity(0.45),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.3),
+                    color: Colors.white.withValues(alpha: 0.45),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.3,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -559,23 +591,25 @@ class _StatCard extends StatelessWidget {
           ),
           if (fullWidth)
             Container(
-              padding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.15),
+                color: color.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: color.withOpacity(0.3)),
+                border: Border.all(color: color.withValues(alpha: 0.3)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.circle, color: color, size: 7),
                   const SizedBox(width: 5),
-                  Text('Active',
-                      style: TextStyle(
-                          color: color,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700)),
+                  Text(
+                    'Active',
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -585,59 +619,59 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-// ── Management row — 4 buttons in one row ──────────────────────────────────
+// ── Management actions ─────────────────────────────────────────────────────
 
 class _ManagementRow extends StatelessWidget {
-  _ManagementRow();
+  const _ManagementRow();
 
   final _items = const [
     _MgmtItem(
-        label: 'Members',
-        icon: Icons.people_alt_rounded,
-        color: Color(0xFF6366F1),
-        sub: 'Roster'),
+      label: 'Members',
+      icon: Icons.people_alt_rounded,
+      color: Color(0xFF6366F1),
+      destination: Members(),
+    ),
     _MgmtItem(
-        label: 'Teams',
-        icon: Icons.hub_rounded,
-        color: Color(0xFF10B981),
-        sub: 'Squads'),
+      label: 'Teams',
+      icon: Icons.hub_rounded,
+      color: Color(0xFF10B981),
+    ),
     _MgmtItem(
-        label: 'Matches',
-        icon: Icons.sports_esports_rounded,
-        color: Color(0xFFF59E0B),
-        sub: 'Games'),
+      label: 'Competitions',
+      icon: Icons.sports_esports_rounded,
+      color: Color(0xFFF59E0B),
+    ),
     _MgmtItem(
-        label: 'Contents',
-        icon: Icons.auto_awesome_motion_rounded,
-        color: Color(0xFFEC4899),
-        sub: 'Media'),
+      label: 'Contents',
+      icon: Icons.auto_awesome_motion_rounded,
+      color: Color(0xFFEC4899),
+    ),
   ];
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: _items
-          .map((item) => Expanded(
-        child: Padding(
-          padding: EdgeInsets.only(
-              right: _items.last == item ? 0 : 10),
-          child: _ManagementButton(item: item),
-        ),
-      ))
-          .toList(),
+    return Column(
+      children: [
+        for (final item in _items) ...[
+          _ManagementButton(item: item),
+          if (item != _items.last) const SizedBox(height: 12),
+        ],
+      ],
     );
   }
 }
 
 class _MgmtItem {
-  final String label, sub;
+  final String label;
   final IconData icon;
   final Color color;
-  const _MgmtItem(
-      {required this.label,
-        required this.icon,
-        required this.color,
-        required this.sub});
+  final Widget? destination;
+  const _MgmtItem({
+    required this.label,
+    required this.icon,
+    required this.color,
+    this.destination,
+  });
 }
 
 class _ManagementButton extends StatefulWidget {
@@ -656,83 +690,88 @@ class _ManagementButtonState extends State<_ManagementButton> {
     final item = widget.item;
     return GestureDetector(
       onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) => setState(() => _pressed = false),
+      onTapUp: (_) {
+        setState(() => _pressed = false);
+        final destination = item.destination;
+        if (destination == null) return;
+
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => destination));
+      },
       onTapCancel: () => setState(() => _pressed = false),
       child: AnimatedScale(
-        scale: _pressed ? 0.93 : 1.0,
+        scale: _pressed ? 0.97 : 1.0,
         duration: const Duration(milliseconds: 120),
         child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(18),
             boxShadow: [
               BoxShadow(
-                  color: item.color.withOpacity(0.25),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6)),
-              BoxShadow(
-                  color: Colors.black.withOpacity(0.35),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4)),
+                color: Colors.black.withValues(alpha: 0.14),
+                blurRadius: 12,
+                offset: const Offset(0, 5),
+              ),
             ],
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    vertical: 18, horizontal: 8),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      item.color.withOpacity(0.18),
-                      item.color.withOpacity(0.06),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                      color: item.color.withOpacity(0.35), width: 1),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: item.color.withOpacity(0.15),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                              color: item.color.withOpacity(0.35),
-                              blurRadius: 14,
-                              spreadRadius: 1)
-                        ],
-                      ),
-                      child: Icon(item.icon, color: item.color, size: 22),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      item.label,
-                      style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      item.sub,
-                      style: TextStyle(
-                          fontSize: 10,
-                          color: item.color.withOpacity(0.7),
-                          fontWeight: FontWeight.w600),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 76),
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  item.color.withValues(alpha: 0.16),
+                  const Color(0xFF111827).withValues(alpha: 0.9),
+                ],
               ),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: item.color.withValues(alpha: 0.2),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: item.color.withValues(alpha: 0.13),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(item.icon, color: item.color, size: 23),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    item.label,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                ),
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.045),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.06),
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.chevron_right_rounded,
+                    color: item.color.withValues(alpha: 0.82),
+                    size: 24,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -751,47 +790,73 @@ class _BottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(20, 0, 20, 30),
-      height: 72,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(32),
-        boxShadow: [
-          BoxShadow(
-              color: const Color(0xFF6366F1).withOpacity(0.15),
-              blurRadius: 30,
-              offset: const Offset(0, 8)),
-          BoxShadow(
-              color: Colors.black.withOpacity(0.5),
-              blurRadius: 20,
-              offset: const Offset(0, 6)),
+    return SizedBox(
+      height: 126,
+      child: Stack(
+        alignment: Alignment.bottomCenter,
+        children: [
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      const Color(0xFF050816).withValues(alpha: 0.76),
+                    ],
+                    stops: const [0.08, 1],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Container(
+            margin: const EdgeInsets.fromLTRB(20, 0, 20, 30),
+            height: 72,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.42),
+                  blurRadius: 22,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: _GlassCard(
+              padding: EdgeInsets.zero,
+              radius: 28,
+              tint: const Color(0xFF0B1020).withValues(alpha: 0.98),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _NavIcon(
+                    icon: Icons.grid_view_rounded,
+                    active: selectedIndex == 0,
+                    onTap: () => onTap(0),
+                  ),
+                  _NavIcon(
+                    icon: Icons.analytics_outlined,
+                    active: selectedIndex == 1,
+                    onTap: () => onTap(1),
+                  ),
+                  _NavIcon(
+                    icon: Icons.person_outline_rounded,
+                    active: selectedIndex == 2,
+                    onTap: () => onTap(2),
+                  ),
+                  _NavIcon(
+                    icon: Icons.settings_rounded,
+                    active: selectedIndex == 3,
+                    onTap: () => onTap(3),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
-      ),
-      child: _GlassCard(
-        padding: EdgeInsets.zero,
-        radius: 32,
-        tint: Colors.white.withOpacity(0.07),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _NavIcon(
-                icon: Icons.grid_view_rounded,
-                active: selectedIndex == 0,
-                onTap: () => onTap(0)),
-            _NavIcon(
-                icon: Icons.analytics_outlined,
-                active: selectedIndex == 1,
-                onTap: () => onTap(1)),
-            _NavIcon(
-                icon: Icons.person_outline_rounded,
-                active: selectedIndex == 2,
-                onTap: () => onTap(2)),
-            _NavIcon(
-                icon: Icons.settings_rounded,
-                active: selectedIndex == 3,
-                onTap: () => onTap(3)),
-          ],
-        ),
       ),
     );
   }
@@ -802,8 +867,11 @@ class _NavIcon extends StatelessWidget {
   final bool active;
   final VoidCallback onTap;
 
-  const _NavIcon(
-      {required this.icon, required this.active, required this.onTap});
+  const _NavIcon({
+    required this.icon,
+    required this.active,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -812,28 +880,18 @@ class _NavIcon extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
-        padding:
-        const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
         decoration: BoxDecoration(
           color: active
-              ? const Color(0xFF6366F1).withOpacity(0.18)
+              ? const Color(0xFF6366F1).withValues(alpha: 0.18)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(22),
-          boxShadow: active
-              ? [
-            BoxShadow(
-                color:
-                const Color(0xFF6366F1).withOpacity(0.35),
-                blurRadius: 14,
-                spreadRadius: 1)
-          ]
-              : null,
         ),
         child: Icon(
           icon,
           color: active
               ? const Color(0xFF818CF8)
-              : Colors.white.withOpacity(0.3),
+              : Colors.white.withValues(alpha: 0.3),
           size: 26,
         ),
       ),
