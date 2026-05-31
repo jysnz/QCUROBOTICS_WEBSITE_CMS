@@ -8,93 +8,142 @@ class Dashboard extends StatefulWidget {
   State<Dashboard> createState() => _DashboardState();
 }
 
-class _DashboardState extends State<Dashboard> {
+class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMixin {
   int _selectedIndex = 0;
+  late AnimationController _bgController;
+
+  @override
+  void initState() {
+    super.initState();
+    _bgController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 10),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _bgController.dispose();
+    super.dispose();
+  }
+
+  String _getGreeting() {
+    var hour = DateTime.now().hour;
+    if (hour < 12) return 'Good Morning';
+    if (hour < 17) return 'Good Afternoon';
+    return 'Good Evening';
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF0F0C29),
-              Color(0xFF1a1a3e),
-              Color(0xFF24243e),
-            ],
+      backgroundColor: const Color(0xFF0D0B26),
+      body: Stack(
+        children: [
+          // Dynamic Animated Background Blobs
+          AnimatedBuilder(
+            animation: _bgController,
+            builder: (context, child) {
+              return Stack(
+                children: [
+                  Positioned(
+                    top: -100 + (20 * _bgController.value),
+                    right: -50 - (30 * _bgController.value),
+                    child: _BlurBlob(color: const Color(0xFF6366F1).withOpacity(0.15), size: 350),
+                  ),
+                  Positioned(
+                    bottom: 150 - (40 * _bgController.value),
+                    left: -120 + (50 * _bgController.value),
+                    child: _BlurBlob(color: const Color(0xFFEC4899).withOpacity(0.1), size: 450),
+                  ),
+                  Positioned(
+                    top: 300 + (60 * _bgController.value),
+                    left: 100 - (20 * _bgController.value),
+                    child: _BlurBlob(color: const Color(0xFF10B981).withOpacity(0.05), size: 300),
+                  ),
+                ],
+              );
+            },
           ),
-        ),
-        child: SafeArea(
-          bottom: false,
-          child: CustomScrollView(
-            slivers: [
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
-                  child: _TopBar(),
+          
+          SafeArea(
+            bottom: false,
+            child: CustomScrollView(
+              physics: const BouncingScrollPhysics(),
+              slivers: [
+                // --- Top Profile & Header ---
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 15),
+                    child: _EnhancedTopBar(greeting: _getGreeting()),
+                  ),
                 ),
-              ),
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(20, 10, 20, 10),
-                  child: Text(
-                    'Management',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
+
+                // --- Management Section Header ---
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(24, 25, 24, 15),
+                    child: Row(
+                      children: [
+                        _SectionIndicator(),
+                        SizedBox(width: 10),
+                        Text(
+                          'Management',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ),
-              const SliverPadding(
-                padding: EdgeInsets.symmetric(horizontal: 20),
-                sliver: _MainNavigationGrid(),
-              ),
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(20, 30, 20, 10),
-                  child: Text(
-                    'Statistics',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
+
+                // --- Management Grid ---
+                const SliverPadding(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  sliver: _ManagementGrid(),
+                ),
+
+                // --- Recent Activity Header ---
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(24, 35, 24, 15),
+                    child: Row(
+                      children: [
+                        _SectionIndicator(color: Color(0xFFEC4899)),
+                        SizedBox(width: 10),
+                        Text(
+                          'Recent Activity',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ),
-              SliverToBoxAdapter(
-                child: _StatsHorizontalScroll(),
-              ),
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(20, 30, 20, 15),
-                  child: Text(
-                    'Recent Activity',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
-                  ),
+
+                // --- Activity List ---
+                const SliverPadding(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  sliver: _EnhancedActivityList(),
                 ),
-              ),
-              const SliverPadding(
-                padding: EdgeInsets.symmetric(horizontal: 20),
-                sliver: _RecentActivityList(),
-              ),
-              const SliverToBoxAdapter(
-                child: SizedBox(height: 120),
-              ),
-            ],
+
+                const SliverToBoxAdapter(
+                  child: SizedBox(height: 140),
+                ),
+              ],
+            ),
           ),
-        ),
+        ],
       ),
-      bottomNavigationBar: _BottomNav(
+      bottomNavigationBar: _ModernBottomNav(
         selectedIndex: _selectedIndex,
         onItemTapped: (i) => setState(() => _selectedIndex = i),
       ),
@@ -102,21 +151,61 @@ class _DashboardState extends State<Dashboard> {
   }
 }
 
-// ─── Glass Helper ──────────────────────────────────────────────────────────
+class _SectionIndicator extends StatelessWidget {
+  final Color color;
+  const _SectionIndicator({this.color = const Color(0xFF6366F1)});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 4,
+      height: 20,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [BoxShadow(color: color.withOpacity(0.5), blurRadius: 8)],
+      ),
+    );
+  }
+}
+
+class _BlurBlob extends StatelessWidget {
+  final Color color;
+  final double size;
+  const _BlurBlob({required this.color, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+      ),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 90, sigmaY: 90),
+        child: Container(color: Colors.transparent),
+      ),
+    );
+  }
+}
+
+// ─── Refined Glass Helper ──────────────────────────────────────────────────
 
 class _GlassCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final double radius;
-  final double blur;
-  final Color tint;
+  final Color? tint;
+  final bool border;
 
   const _GlassCard({
     required this.child,
     this.padding = const EdgeInsets.all(16),
     this.radius = 24,
-    this.blur = 15,
-    this.tint = const Color(0x1AFFFFFF),
+    this.tint,
+    this.border = true,
   });
 
   @override
@@ -124,13 +213,21 @@ class _GlassCard extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
         child: Container(
           padding: padding,
           decoration: BoxDecoration(
-            color: tint,
+            color: tint ?? Colors.white.withOpacity(.06),
             borderRadius: BorderRadius.circular(radius),
-            border: Border.all(color: Colors.white.withOpacity(.12), width: 1),
+            border: border ? Border.all(color: Colors.white.withOpacity(.12), width: 1) : null,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withOpacity(0.12),
+                Colors.white.withOpacity(0.04),
+              ],
+            ),
           ),
           child: child,
         ),
@@ -139,54 +236,62 @@ class _GlassCard extends StatelessWidget {
   }
 }
 
-// ─── Top Bar ───────────────────────────────────────────────────────────────
+// ─── Header Section ────────────────────────────────────────────────────────
 
-class _TopBar extends StatelessWidget {
-  const _TopBar();
+class _EnhancedTopBar extends StatelessWidget {
+  final String greeting;
+  const _EnhancedTopBar({required this.greeting});
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: const LinearGradient(
-              colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF6366F1).withOpacity(.3),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
+        Stack(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF6366F1), Color(0xFFEC4899)],
+                ),
               ),
-            ],
-          ),
-          child: const Center(
-            child: Text('AD',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16)),
-          ),
+              child: const CircleAvatar(
+                radius: 26,
+                backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=32'),
+              ),
+            ),
+            Positioned(
+              right: 2,
+              bottom: 2,
+              child: Container(
+                width: 14,
+                height: 14,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFF0D0B26), width: 2),
+                ),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 15),
-        const Expanded(
+        const SizedBox(width: 16),
+        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Welcome Back,',
-                style: TextStyle(fontSize: 14, color: Color(0xFF9CA3AF)),
+                greeting,
+                style: const TextStyle(fontSize: 13, color: Colors.white54, fontWeight: FontWeight.w500),
               ),
-              Text(
-                'Admin User',
+              const Text(
+                'Admin Dashboard',
                 style: TextStyle(
-                  fontSize: 20,
+                  fontSize: 22,
                   fontWeight: FontWeight.w900,
                   color: Colors.white,
+                  letterSpacing: -0.5,
                 ),
               ),
             ],
@@ -194,45 +299,24 @@ class _TopBar extends StatelessWidget {
         ),
         _GlassCard(
           padding: const EdgeInsets.all(12),
-          radius: 16,
-          child: const Icon(Icons.notifications_outlined,
-              color: Colors.white, size: 24),
+          radius: 18,
+          child: const Icon(Icons.notifications_active_outlined, color: Colors.white, size: 24),
         ),
       ],
     );
   }
 }
 
-// ─── Main Navigation Grid ──────────────────────────────────────────────────
+// ─── Management Grid ───────────────────────────────────────────────────────
 
-class _MainNavigationGrid extends StatelessWidget {
-  const _MainNavigationGrid();
+class _ManagementGrid extends StatelessWidget {
+  const _ManagementGrid();
 
   static const _items = [
-    (
-      label: 'Members',
-      icon: Icons.group_rounded,
-      color: Color(0xFF6366F1),
-      count: '48 Active',
-    ),
-    (
-      label: 'Teams',
-      icon: Icons.hub_rounded,
-      color: Color(0xFF10B981),
-      count: '6 Registered',
-    ),
-    (
-      label: 'Matches',
-      icon: Icons.sports_esports_rounded,
-      color: Color(0xFFF59E0B),
-      count: '12 Upcoming',
-    ),
-    (
-      label: 'Contents',
-      icon: Icons.article_rounded,
-      color: Color(0xFFEC4899),
-      count: '89 Posts',
-    ),
+    (label: 'Members', icon: Icons.people_alt_rounded, color: Color(0xFF6366F1), sub: '48 Active'),
+    (label: 'Teams', icon: Icons.hub_rounded, color: Color(0xFF10B981), sub: '12 Squads'),
+    (label: 'Matches', icon: Icons.sports_esports_rounded, color: Color(0xFFF59E0B), sub: '8 Today'),
+    (label: 'Contents', icon: Icons.auto_awesome_motion_rounded, color: Color(0xFFEC4899), sub: '124 Items'),
   ];
 
   @override
@@ -247,12 +331,7 @@ class _MainNavigationGrid extends StatelessWidget {
       delegate: SliverChildBuilderDelegate(
         (context, index) {
           final item = _items[index];
-          return _NavCard(
-            label: item.label,
-            icon: item.icon,
-            color: item.color,
-            count: item.count,
-          );
+          return _InteractiveNavCard(item: item);
         },
         childCount: _items.length,
       ),
@@ -260,146 +339,70 @@ class _MainNavigationGrid extends StatelessWidget {
   }
 }
 
-class _NavCard extends StatelessWidget {
-  final String label, count;
-  final IconData icon;
-  final Color color;
+class _InteractiveNavCard extends StatefulWidget {
+  final dynamic item;
+  const _InteractiveNavCard({required this.item});
 
-  const _NavCard({
-    required this.label,
-    required this.icon,
-    required this.color,
-    required this.count,
-  });
+  @override
+  State<_InteractiveNavCard> createState() => _InteractiveNavCardState();
+}
+
+class _InteractiveNavCardState extends State<_InteractiveNavCard> {
+  bool _isPressed = false;
 
   @override
   Widget build(BuildContext context) {
-    return _GlassCard(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: color.withOpacity(.15),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: color.withOpacity(.3)),
-            ),
-            child: Icon(icon, color: color, size: 26),
-          ),
-          Column(
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _isPressed = true),
+      onTapUp: (_) => setState(() => _isPressed = false),
+      onTapCancel: () => setState(() => _isPressed = false),
+      child: AnimatedScale(
+        scale: _isPressed ? 0.95 : 1.0,
+        duration: const Duration(milliseconds: 100),
+        child: _GlassCard(
+          padding: const EdgeInsets.all(20),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.white,
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: widget.item.color.withOpacity(.12),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: widget.item.color.withOpacity(.3)),
+                  boxShadow: [
+                    BoxShadow(color: widget.item.color.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4))
+                  ],
                 ),
+                child: Icon(widget.item.icon, color: widget.item.color, size: 28),
               ),
-              const SizedBox(height: 4),
-              Text(
-                count,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.white.withOpacity(.5),
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.item.label,
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    widget.item.sub,
+                    style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(.4), fontWeight: FontWeight.w600),
+                  ),
+                ],
               ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
-// ─── Stats Horizontal Scroll ──────────────────────────────────────────────
+// ─── Recent Activity Section ───────────────────────────────────────────────
 
-class _StatsHorizontalScroll extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Row(
-        children: [
-          _StatMiniCard(
-            label: 'Total Wins',
-            value: '124',
-            icon: Icons.emoji_events_rounded,
-            color: Colors.orangeAccent,
-          ),
-          const SizedBox(width: 15),
-          _StatMiniCard(
-            label: 'Events',
-            value: '32',
-            icon: Icons.calendar_today_rounded,
-            color: Colors.lightBlueAccent,
-          ),
-          const SizedBox(width: 15),
-          _StatMiniCard(
-            label: 'Awards',
-            value: '15',
-            icon: Icons.military_tech_rounded,
-            color: Colors.purpleAccent,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatMiniCard extends StatelessWidget {
-  final String label, value;
-  final IconData icon;
-  final Color color;
-
-  const _StatMiniCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _GlassCard(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      radius: 20,
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 22),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                value,
-                style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white),
-              ),
-              Text(
-                label,
-                style: TextStyle(
-                    fontSize: 12, color: Colors.white.withOpacity(.5)),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Recent Activity List ──────────────────────────────────────────────────
-
-class _RecentActivityList extends StatelessWidget {
-  const _RecentActivityList();
+class _EnhancedActivityList extends StatelessWidget {
+  const _EnhancedActivityList();
 
   @override
   Widget build(BuildContext context) {
@@ -408,132 +411,105 @@ class _RecentActivityList extends StatelessWidget {
         (context, index) {
           return Padding(
             padding: const EdgeInsets.only(bottom: 12),
-            child: _ActivityTile(index: index),
+            child: _EnhancedActivityTile(index: index),
           );
         },
-        childCount: 5,
+        childCount: 4,
       ),
     );
   }
 }
 
-class _ActivityTile extends StatelessWidget {
+class _EnhancedActivityTile extends StatelessWidget {
   final int index;
-  const _ActivityTile({required this.index});
+  const _EnhancedActivityTile({required this.index});
 
   @override
   Widget build(BuildContext context) {
-    final titles = [
-      'New member added',
-      'Match results updated',
-      'New content published',
-      'Team Alpha created',
-      'Settings updated'
+    final activities = [
+      (title: 'New Member', desc: 'Satoshi Nakamoto joined Robotics Team', time: '12m ago', icon: Icons.person_add_rounded, color: Color(0xFF6366F1)),
+      (title: 'Match Result', desc: 'Team Phoenix won against CyberDragons', time: '45m ago', icon: Icons.military_tech_rounded, color: Color(0xFFF59E0B)),
+      (title: 'New Post', desc: 'Admin published "Season 5 Updates"', time: '2h ago', icon: Icons.edit_note_rounded, color: Color(0xFFEC4899)),
+      (title: 'System Alert', desc: 'Database backup completed successfully', time: '5h ago', icon: Icons.verified_user_rounded, color: Color(0xFF10B981)),
     ];
-    final times = [
-      '2 mins ago',
-      '1 hour ago',
-      '3 hours ago',
-      'Yesterday',
-      '2 days ago'
-    ];
-    final colors = [
-      Colors.greenAccent,
-      Colors.orangeAccent,
-      Colors.blueAccent,
-      Colors.pinkAccent,
-      Colors.grey
-    ];
+
+    final act = activities[index % activities.length];
 
     return _GlassCard(
       padding: const EdgeInsets.all(16),
-      radius: 20,
+      radius: 22,
       child: Row(
         children: [
           Container(
-            width: 10,
-            height: 10,
+            width: 50,
+            height: 50,
             decoration: BoxDecoration(
-              color: colors[index % colors.length],
-              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [act.color.withOpacity(0.2), act.color.withOpacity(0.05)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(15),
             ),
+            child: Icon(act.icon, color: act.color, size: 26),
           ),
-          const SizedBox(width: 15),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Text(act.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
+                const SizedBox(height: 2),
                 Text(
-                  titles[index % titles.length],
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15),
-                ),
-                Text(
-                  times[index % times.length],
-                  style: TextStyle(
-                      color: Colors.white.withOpacity(.4), fontSize: 12),
+                  act.desc,
+                  style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13, fontWeight: FontWeight.w500),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
-          Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(.3)),
+          const SizedBox(width: 8),
+          Text(act.time, style: TextStyle(color: Colors.white.withOpacity(0.25), fontSize: 11, fontWeight: FontWeight.bold)),
         ],
       ),
     );
   }
 }
 
-// ─── Bottom Navigation ─────────────────────────────────────────────────────
+// ─── Modern Bottom Navigation ──────────────────────────────────────────────
 
-class _BottomNav extends StatelessWidget {
+class _ModernBottomNav extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onItemTapped;
 
-  const _BottomNav({required this.selectedIndex, required this.onItemTapped});
+  const _ModernBottomNav({required this.selectedIndex, required this.onItemTapped});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(24, 0, 24, 30),
-      height: 75,
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 30),
+      height: 80,
       decoration: BoxDecoration(
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(.4),
-            blurRadius: 30,
-            offset: const Offset(0, 10),
+            color: Colors.black.withOpacity(.5),
+            blurRadius: 40,
+            offset: const Offset(0, 15),
           ),
         ],
       ),
       child: _GlassCard(
         padding: EdgeInsets.zero,
-        radius: 28,
+        radius: 30,
         tint: Colors.white.withOpacity(.08),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _NavButton(
-              icon: Icons.grid_view_rounded,
-              active: selectedIndex == 0,
-              onTap: () => onItemTapped(0),
-            ),
-            _NavButton(
-              icon: Icons.analytics_outlined,
-              active: selectedIndex == 1,
-              onTap: () => onItemTapped(1),
-            ),
-            _NavButton(
-              icon: Icons.person_outline_rounded,
-              active: selectedIndex == 2,
-              onTap: () => onItemTapped(2),
-            ),
-            _NavButton(
-              icon: Icons.settings_outlined,
-              active: selectedIndex == 3,
-              onTap: () => onItemTapped(3),
-            ),
+            _ModernNavIcon(icon: Icons.grid_view_rounded, active: selectedIndex == 0, onTap: () => onItemTapped(0)),
+            _ModernNavIcon(icon: Icons.analytics_outlined, active: selectedIndex == 1, onTap: () => onItemTapped(1)),
+            _ModernNavIcon(icon: Icons.person_outline_rounded, active: selectedIndex == 2, onTap: () => onItemTapped(2)),
+            _ModernNavIcon(icon: Icons.settings_rounded, active: selectedIndex == 3, onTap: () => onItemTapped(3)),
           ],
         ),
       ),
@@ -541,16 +517,12 @@ class _BottomNav extends StatelessWidget {
   }
 }
 
-class _NavButton extends StatelessWidget {
+class _ModernNavIcon extends StatelessWidget {
   final IconData icon;
   final bool active;
   final VoidCallback onTap;
 
-  const _NavButton({
-    required this.icon,
-    required this.active,
-    required this.onTap,
-  });
+  const _ModernNavIcon({required this.icon, required this.active, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -558,16 +530,29 @@ class _NavButton extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
+        duration: const Duration(milliseconds: 300),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         decoration: BoxDecoration(
           color: active ? Colors.white.withOpacity(.1) : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
         ),
-        child: Icon(
-          icon,
-          color: active ? const Color(0xFF818CF8) : Colors.white.withOpacity(.4),
-          size: 26,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              color: active ? const Color(0xFF818CF8) : Colors.white.withOpacity(.3),
+              size: 28,
+            ),
+            if (active) ...[
+              const SizedBox(height: 4),
+              Container(
+                width: 4,
+                height: 4,
+                decoration: const BoxDecoration(color: Color(0xFF818CF8), shape: BoxShape.circle),
+              ),
+            ],
+          ],
         ),
       ),
     );
