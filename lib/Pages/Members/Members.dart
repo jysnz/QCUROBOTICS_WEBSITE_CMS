@@ -25,6 +25,7 @@ class _MembersState extends State<Members> {
   }
 
   Future<_MembersPageData> _loadMembersData() async {
+    debugPrint('[_loadMembersData] fetching data...');
     final results = await Future.wait([
       _supabase.from('member_team_seasons').select('''
             id,
@@ -40,27 +41,30 @@ class _MembersState extends State<Members> {
               team_name,
               team_number,
               team_code,
-              is_active
+              is_active,
+              season_id
             ),
             season:seasons(
               id,
               season_name
             )
           '''),
-      _supabase.from('member_roles').select('member_id, role:roles(role_name)'),
+      _supabase.from('member_roles').select('member_id, season_id, role:roles(role_name)'),
       _supabase.from('members').select(),
       _supabase
           .from('media_team')
           .select('id, name, position, image_url, is_active'),
       _supabase
           .from('teams')
-          .select('id, team_name, team_number, team_code, is_active')
+          .select('id, team_name, team_number, team_code, is_active, season_id')
           .order('team_number'),
       _supabase.from('seasons').select('id, season_name').order('id'),
       _supabase.from('roles').select('id, role_name').order('role_name'),
     ]);
+    debugPrint('[_loadMembersData] fetched ${results.length} result sets');
 
     final assignments = _asMapList(results[0]);
+    debugPrint('[_loadMembersData] assignments count: ${assignments.length}');
     final roleRows = _asMapList(results[1]);
     final members = _asMapList(results[2]);
     final mediaTeam = _asMapList(results[3])
@@ -77,15 +81,17 @@ class _MembersState extends State<Members> {
       results[6],
     ).map(_RoleOption.fromRow).where((role) => role.id != null).toList();
 
-    final rolesByMemberId = <int, List<String>>{};
+    final rolesByMemberSeason = <String, List<String>>{};
     for (final row in roleRows) {
       final memberId = _intValue(row['member_id']);
+      final seasonId = _intValue(row['season_id']);
       final role = row['role'];
-      if (memberId == null || role is! Map) continue;
+      if (memberId == null || seasonId == null || role is! Map) continue;
 
       final roleName = _stringValue(role['role_name']);
       if (roleName.isEmpty) continue;
-      rolesByMemberId.putIfAbsent(memberId, () => <String>[]).add(roleName);
+      final key = '$memberId:$seasonId';
+      rolesByMemberSeason.putIfAbsent(key, () => <String>[]).add(roleName);
     }
 
     final seasonsById = <int, _SeasonGroup>{};
@@ -130,7 +136,7 @@ class _MembersState extends State<Members> {
           imageUrl: _nullableString(memberMap['profile_image_url']),
           isActive: memberMap['is_active'] == true,
           isGraduated: memberMap['is_graduated'] == true,
-          roles: rolesByMemberId[memberId] ?? const <String>[],
+          roles: rolesByMemberSeason['$memberId:$seasonId'] ?? const <String>[],
         ),
       );
     }
@@ -140,6 +146,26 @@ class _MembersState extends State<Members> {
     for (final season in seasonGroups) {
       for (final team in season.teamsById.values) {
         team.players.sort((a, b) => a.name.compareTo(b.name));
+      }
+    }
+
+    final totalPlayers = seasonGroups.fold<int>(
+      0,
+      (sum, s) => sum + s.teamsById.values.fold<int>(0, (tSum, t) => tSum + t.players.length),
+    );
+    debugPrint(
+      '[_loadMembersData] built ${seasonGroups.length} seasons, $totalPlayers players',
+    );
+    for (final s in seasonGroups) {
+      for (final t in s.teamsById.values) {
+        debugPrint(
+          '[_loadMembersData]   season="${s.name}" team="${t.name}" players=${t.players.length}',
+        );
+        for (final p in t.players) {
+          debugPrint(
+            '[_loadMembersData]     player id=${p.id} name="${p.name}" isActive=${p.isActive} isGraduated=${p.isGraduated}',
+          );
+        }
       }
     }
 
@@ -154,13 +180,23 @@ class _MembersState extends State<Members> {
   }
 
   Future<void> _refresh() async {
-    setState(() => _membersFuture = _loadMembersData());
-    await _membersFuture;
+    debugPrint('[_refresh] called');
+    final future = _loadMembersData();
+    setState(() {
+      _membersFuture = future;
+    });
+    await future;
+    debugPrint('[_refresh] complete');
   }
 
   Future<void> _reload() async {
     if (!mounted) return;
-    setState(() => _membersFuture = _loadMembersData());
+    debugPrint('[_reload] called');
+    final future = _loadMembersData();
+    setState(() {
+      _membersFuture = future;
+    });
+    debugPrint('[_reload] complete');
   }
 
   Future<void> _openTeamPlayerForm({
@@ -469,8 +505,9 @@ class _TeamPlayer {
 class _TeamOption {
   final int? id;
   final String name;
+  final int? seasonId;
 
-  const _TeamOption({required this.id, required this.name});
+  const _TeamOption({required this.id, required this.name, this.seasonId});
 
   factory _TeamOption.fromRow(Map<String, dynamic> row) {
     final id = _intValue(row['id']);
@@ -482,7 +519,11 @@ class _TeamOption {
       if (code.isNotEmpty) code,
     ].join(' | ');
 
-    return _TeamOption(id: id, name: meta.isEmpty ? name : '$name ($meta)');
+    return _TeamOption(
+      id: id,
+      name: meta.isEmpty ? name : '$name ($meta)',
+      seasonId: _intValue(row['season_id']),
+    );
   }
 }
 
@@ -1368,6 +1409,13 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
   bool _isSaving = false;
   bool _isUploadingPicture = false;
 
+  List<_TeamOption> get _teamsForSeason {
+    if (_seasonId == null) return const [];
+    return widget.teams
+        .where((t) => t.seasonId == null || t.seasonId == _seasonId)
+        .toList();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1400,6 +1448,11 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
     }
 
     setState(() => _isSaving = true);
+    final isEditing = widget.player != null;
+    debugPrint('[_TeamPlayerFormSheet._save] isEditing=$isEditing');
+    debugPrint(
+      '[_TeamPlayerFormSheet._save] name="${_nameController.text.trim()}" teamId=$_teamId seasonId=$_seasonId',
+    );
     try {
       final payload = {
         'name': _nameController.text.trim(),
@@ -1411,15 +1464,19 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
       final player = widget.player;
       late final int memberId;
       if (player == null) {
+        debugPrint('[_TeamPlayerFormSheet._save] inserting new team_member');
         final inserted = await _supabase
             .from('team_members')
             .insert(payload)
             .select('id')
             .single();
         memberId = _intValue(inserted['id'])!;
+        debugPrint('[_TeamPlayerFormSheet._save] new memberId=$memberId');
       } else {
         memberId = player.id;
+        debugPrint('[_TeamPlayerFormSheet._save] updating team_members id=$memberId');
         await _supabase.from('team_members').update(payload).eq('id', memberId);
+        debugPrint('[_TeamPlayerFormSheet._save] team_members updated');
       }
 
       final assignmentPayload = {
@@ -1428,24 +1485,45 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
         'season_id': _seasonId,
       };
       if (player?.assignmentId == null) {
+        debugPrint('[_TeamPlayerFormSheet._save] inserting assignment');
         await _supabase.from('member_team_seasons').insert(assignmentPayload);
       } else {
+        final assignmentId = player!.assignmentId!;
+        debugPrint(
+          '[_TeamPlayerFormSheet._save] updating assignment id=$assignmentId',
+        );
         await _supabase
             .from('member_team_seasons')
             .update(assignmentPayload)
-            .eq('id', player!.assignmentId!);
+            .eq('id', assignmentId);
       }
+      debugPrint('[_TeamPlayerFormSheet._save] assignment done');
 
-      await _supabase.from('member_roles').delete().eq('member_id', memberId);
+      debugPrint('[_TeamPlayerFormSheet._save] deleting old roles for memberId=$memberId');
+      await _supabase
+          .from('member_roles')
+          .delete()
+          .eq('member_id', memberId)
+          .eq('season_id', _seasonId!);
       if (_roleIds.isNotEmpty) {
+        debugPrint('[_TeamPlayerFormSheet._save] inserting ${_roleIds.length} roles');
         await _supabase.from('member_roles').insert([
           for (final roleId in _roleIds)
-            {'member_id': memberId, 'role_id': roleId},
+            {
+              'member_id': memberId,
+              'role_id': roleId,
+              'season_id': _seasonId,
+            },
         ]);
       }
+      debugPrint('[_TeamPlayerFormSheet._save] roles done');
 
-      if (mounted) Navigator.of(context).pop(true);
+      if (mounted) {
+        await _showSuccess(isEditing ? 'Team player updated successfully.' : 'Team player added successfully.');
+        if (mounted) Navigator.of(context).pop(true);
+      }
     } catch (error) {
+      debugPrint('[_TeamPlayerFormSheet._save] ERROR: $error');
       _showError(error.toString());
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -1483,6 +1561,30 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
     );
   }
 
+  Future<void> _showSuccess(String message) async {
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF111827),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle, color: Color(0xFF34D399), size: 26),
+            SizedBox(width: 10),
+            Text('Success', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: Text(message, style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK', style: TextStyle(color: Color(0xFF818CF8))),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.player != null;
@@ -1500,11 +1602,6 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
               validator: _requiredValidator,
             ),
             const SizedBox(height: 12),
-            _TextFieldInput(
-              controller: _imageController,
-              label: 'Profile image URL',
-            ),
-            const SizedBox(height: 10),
             _PhotoPickerInput(
               imageUrl: _nullableString(_imageController.text),
               isUploading: _isUploadingPicture,
@@ -1513,23 +1610,32 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
             const SizedBox(height: 12),
             _DropdownInput<int>(
               label: 'Team',
-              value: _teamId,
+              value: _teamsForSeason.any((t) => t.id == _teamId) ? _teamId : null,
               items: [
-                for (final team in widget.teams)
+                for (final team in _teamsForSeason)
                   DropdownMenuItem(value: team.id, child: Text(team.name)),
               ],
               onChanged: (value) => setState(() => _teamId = value),
             ),
-            const SizedBox(height: 12),
-            _DropdownInput<int>(
-              label: 'Season',
-              value: _seasonId,
-              items: [
-                for (final season in widget.seasons)
-                  DropdownMenuItem(value: season.id, child: Text(season.name)),
-              ],
-              onChanged: (value) => setState(() => _seasonId = value),
-            ),
+            if (!isEditing) ...[
+              const SizedBox(height: 12),
+              _DropdownInput<int>(
+                label: 'Season',
+                value: _seasonId,
+                items: [
+                  for (final season in widget.seasons)
+                    DropdownMenuItem(value: season.id, child: Text(season.name)),
+                ],
+                onChanged: (value) {
+                  setState(() {
+                    _seasonId = value;
+                    if (!_teamsForSeason.any((t) => t.id == _teamId)) {
+                      _teamId = _teamsForSeason.firstOrNull?.id;
+                    }
+                  });
+                },
+              ),
+            ],
             const SizedBox(height: 10),
             _SwitchInput(
               label: 'Active',
@@ -1596,6 +1702,9 @@ class _MediaMemberFormSheetState extends State<_MediaMemberFormSheet> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSaving = true);
+    final isEditing = widget.row != null;
+    debugPrint('[_MediaMemberFormSheet._save] isEditing=$isEditing');
+    debugPrint('[_MediaMemberFormSheet._save] name="${_nameController.text.trim()}"');
     try {
       final payload = {
         'name': _nameController.text.trim(),
@@ -1605,12 +1714,19 @@ class _MediaMemberFormSheetState extends State<_MediaMemberFormSheet> {
       };
       final id = _intValue(widget.row?['id']);
       if (id == null) {
+        debugPrint('[_MediaMemberFormSheet._save] inserting new media member');
         await _supabase.from('media_team').insert(payload);
       } else {
+        debugPrint('[_MediaMemberFormSheet._save] updating media_team id=$id');
         await _supabase.from('media_team').update(payload).eq('id', id);
       }
-      if (mounted) Navigator.of(context).pop(true);
+      debugPrint('[_MediaMemberFormSheet._save] success');
+      if (mounted) {
+        await _showSuccess(isEditing ? 'Media member updated successfully.' : 'Media member added successfully.');
+        if (mounted) Navigator.of(context).pop(true);
+      }
     } catch (error) {
+      debugPrint('[_MediaMemberFormSheet._save] ERROR: $error');
       _showError(error.toString());
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -1648,6 +1764,30 @@ class _MediaMemberFormSheetState extends State<_MediaMemberFormSheet> {
     );
   }
 
+  Future<void> _showSuccess(String message) async {
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF111827),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle, color: Color(0xFF34D399), size: 26),
+            SizedBox(width: 10),
+            Text('Success', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: Text(message, style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK', style: TextStyle(color: Color(0xFF818CF8))),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.row != null;
@@ -1667,8 +1807,6 @@ class _MediaMemberFormSheetState extends State<_MediaMemberFormSheet> {
             const SizedBox(height: 12),
             _TextFieldInput(controller: _positionController, label: 'Position'),
             const SizedBox(height: 12),
-            _TextFieldInput(controller: _imageController, label: 'Image URL'),
-            const SizedBox(height: 10),
             _PhotoPickerInput(
               imageUrl: _nullableString(_imageController.text),
               isUploading: _isUploadingPicture,
@@ -1753,6 +1891,9 @@ class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSaving = true);
+    final isEditing = widget.row != null;
+    debugPrint('[_GenericMemberFormSheet._save] isEditing=$isEditing');
+    debugPrint('[_GenericMemberFormSheet._save] nameKey=$_nameKey name="${_nameController.text.trim()}"');
     try {
       final payload = <String, dynamic>{_nameKey: _nameController.text.trim()};
       final imageKey = _imageKey;
@@ -1771,13 +1912,21 @@ class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
       }
 
       final id = _intValue(widget.row?['id']);
+      debugPrint('[_GenericMemberFormSheet._save] id=$id payload=$payload');
       if (id == null) {
+        debugPrint('[_GenericMemberFormSheet._save] inserting new member');
         await _supabase.from('members').insert(payload);
       } else {
+        debugPrint('[_GenericMemberFormSheet._save] updating members id=$id');
         await _supabase.from('members').update(payload).eq('id', id);
       }
-      if (mounted) Navigator.of(context).pop(true);
+      debugPrint('[_GenericMemberFormSheet._save] success');
+      if (mounted) {
+        await _showSuccess(isEditing ? 'Member updated successfully.' : 'Member added successfully.');
+        if (mounted) Navigator.of(context).pop(true);
+      }
     } catch (error) {
+      debugPrint('[_GenericMemberFormSheet._save] ERROR: $error');
       _showError(error.toString());
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -1815,6 +1964,30 @@ class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
     );
   }
 
+  Future<void> _showSuccess(String message) async {
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF111827),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle, color: Color(0xFF34D399), size: 26),
+            SizedBox(width: 10),
+            Text('Success', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: Text(message, style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK', style: TextStyle(color: Color(0xFF818CF8))),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.row != null;
@@ -1840,11 +2013,6 @@ class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
             ],
             if (_imageKey case final imageKey?) ...[
               const SizedBox(height: 12),
-              _TextFieldInput(
-                controller: _imageController,
-                label: _fieldLabel(imageKey),
-              ),
-              const SizedBox(height: 10),
               _PhotoPickerInput(
                 imageUrl: _nullableString(_imageController.text),
                 isUploading: _isUploadingPicture,
@@ -2052,7 +2220,7 @@ class _RoleSelector extends StatelessWidget {
                       role.name,
                       style: TextStyle(
                         color: isSelected
-                            ? const Color(0xFFE0E7FF)
+                            ? Colors.white
                             : Colors.white.withValues(alpha: 0.72),
                         fontSize: 12,
                         fontWeight: FontWeight.w800,
@@ -2072,7 +2240,7 @@ class _RoleSelector extends StatelessWidget {
                     },
                     selectedColor: const Color(
                       0xFF6366F1,
-                    ).withValues(alpha: 0.26),
+                    ).withValues(alpha: 0.45),
                     backgroundColor: const Color(
                       0xFF111827,
                     ).withValues(alpha: 0.96),
