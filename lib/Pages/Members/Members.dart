@@ -2244,7 +2244,7 @@ class _RoleSelector extends StatelessWidget {
                     backgroundColor: const Color(
                       0xFF111827,
                     ).withValues(alpha: 0.96),
-                    checkmarkColor: const Color(0xFFA5B4FC),
+                    checkmarkColor: Colors.white,
                     side: BorderSide(
                       color: isSelected
                           ? const Color(0xFF818CF8).withValues(alpha: 0.62)
