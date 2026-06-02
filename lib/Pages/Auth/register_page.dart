@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/auth_widgets.dart';
@@ -110,18 +111,119 @@ class _RegisterPageState extends State<RegisterPage> {
     }
   }
 
+  Future<void> _showSuccessDialog() async {
+    return showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF111827),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF10B981),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.check_rounded, size: 48, color: Colors.white),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Registration Successful!',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Your account has been created. Welcome to the QCU Robotics team!',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop(); // Close dialog
+                    if (widget.onProfileComplete != null) {
+                      widget.onProfileComplete!();
+                    } else {
+                      Navigator.of(context).pop(); // Go back to AuthGate/Dashboard
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6366F1),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Get Started', style: TextStyle(fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showErrorDialog(String message) async {
+    return showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF111827),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.error_outline_rounded, color: Colors.redAccent),
+              SizedBox(width: 10),
+              Text('Registration Error', style: TextStyle(color: Colors.white)),
+            ],
+          ),
+          content: Text(
+            message,
+            style: const TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK', style: TextStyle(color: Color(0xFF6366F1))),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _register() async {
+    debugPrint('🚀 Starting registration process...');
+    
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty || _nameController.text.isEmpty) {
+      debugPrint('❌ Validation failed: Missing fields');
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all required fields')));
       return;
     }
 
     if (!_isPasswordValid) {
+      debugPrint('❌ Validation failed: Weak password');
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please meet all password requirements')));
       return;
     }
 
     if (_selectedPosition == 'Team Player' && _selectedTeamId == null) {
+      debugPrint('❌ Validation failed: Team Player selected but no team_id');
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a team')));
       return;
     }
@@ -132,17 +234,21 @@ class _RegisterPageState extends State<RegisterPage> {
       final user = supabase.auth.currentUser;
 
       if (user != null || widget.isGoogleSignUp) {
-        // Mode: Complete Profile (User already has an Auth account)
+        debugPrint('🔄 Mode: Complete Profile / Google User');
         final targetUser = user ?? supabase.auth.currentUser;
+        
         if (targetUser != null) {
-          // Update password if it was changed/set
+          debugPrint('👤 Target User ID: ${targetUser.id}');
+          
           if (_passwordController.text.isNotEmpty) {
+            debugPrint('🔑 Updating password...');
             await supabase.auth.updateUser(
               UserAttributes(password: _passwordController.text.trim()),
             );
+            debugPrint('✅ Password updated');
           }
 
-          // Save profile details to user_accounts
+          debugPrint('💾 Upserting to user_accounts...');
           await supabase.from('user_accounts').upsert({
             'id': targetUser.id,
             'email': _emailController.text.trim(),
@@ -150,19 +256,29 @@ class _RegisterPageState extends State<RegisterPage> {
             'position': _selectedPosition,
             'team_id': _selectedTeamId,
           });
+          debugPrint('✅ user_accounts upsert successful');
+        } else {
+          debugPrint('❌ Error: No authenticated user found during profile completion');
+          throw 'No authenticated user found. Please try logging in again.';
         }
       } else {
-        // Mode: Initial Sign Up (Create the Auth account first)
+        debugPrint('🆕 Mode: Initial Email/Password Sign Up');
+        debugPrint('📧 Email: ${_emailController.text.trim()}');
+        
         final response = await supabase.auth.signUp(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
           data: {
             'full_name': _nameController.text.trim(),
-            // We intentionally do NOT send position here to force the 2-step flow via AuthGate
+            'position': _selectedPosition,
+            if (_selectedPosition == 'Team Player' && _selectedTeamId != null)
+              'team_id': _selectedTeamId,
           }
         );
 
+        debugPrint('✅ Auth signUp call complete');
         if (response.session == null) {
+          debugPrint('ℹ️ Session is null (Email confirmation likely required)');
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Account created! Please confirm your email.')),
@@ -170,30 +286,34 @@ class _RegisterPageState extends State<RegisterPage> {
             Navigator.of(context).pop();
             return;
           }
+        } else {
+          debugPrint('✅ Session established immediately');
         }
       }
       
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile saved successfully!')),
-        );
-        if (widget.onProfileComplete != null) {
-          widget.onProfileComplete!();
-        } else {
-          // If we popped, AuthGate will re-evaluate and show RegisterPage (Complete Profile) or Dashboard
-          Navigator.of(context).pop();
-        }
+        debugPrint('🎉 Registration/Profile Save Finished Successfully');
+        setState(() => _isRegistering = false);
+        await _showSuccessDialog();
       }
     } on AuthException catch (e) {
+      debugPrint('❌ AuthException: ${e.message} (Status: ${e.statusCode})');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        setState(() => _isRegistering = false);
+        _showErrorDialog('Authentication error: ${e.message}');
+      }
+    } on PostgrestException catch (e) {
+      debugPrint('❌ PostgrestException: ${e.message} (Code: ${e.code})');
+      if (mounted) {
+        setState(() => _isRegistering = false);
+        _showErrorDialog('Database error: ${e.message}');
       }
     } catch (e) {
+      debugPrint('❌ Unexpected Error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unexpected error occurred')));
+        setState(() => _isRegistering = false);
+        _showErrorDialog('An unexpected error occurred: $e');
       }
-    } finally {
-      if (mounted) setState(() => _isRegistering = false);
     }
   }
 
@@ -208,7 +328,14 @@ class _RegisterPageState extends State<RegisterPage> {
         leading: widget.isGoogleSignUp 
           ? IconButton(
               icon: const Icon(Icons.logout_rounded, color: Colors.white70),
-              onPressed: () => Supabase.instance.client.auth.signOut(),
+              onPressed: () async {
+                try {
+                  await GoogleSignIn().signOut();
+                } catch (e) {
+                  debugPrint('Google sign out error: $e');
+                }
+                await Supabase.instance.client.auth.signOut();
+              },
               tooltip: 'Logout',
             )
           : IconButton(
