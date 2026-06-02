@@ -5,6 +5,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/auth_widgets.dart';
 
+import '../../main.dart';
+import '../Dashboard/Dashboard.dart';
+
 class RegisterPage extends StatefulWidget {
   final String? initialEmail;
   final String? initialName;
@@ -156,11 +159,13 @@ class _RegisterPageState extends State<RegisterPage> {
                 child: ElevatedButton(
                   onPressed: () {
                     Navigator.of(context).pop(); // Close dialog
-                    if (widget.onProfileComplete != null) {
-                      widget.onProfileComplete!();
-                    } else {
-                      Navigator.of(context).pop(); // Go back to AuthGate/Dashboard
-                    }
+                    
+                    // Force a fresh navigation to the root (AuthGate)
+                    // This ensures the Navigator stack is cleared and AuthGate re-evaluates
+                    Navigator.of(context).pushAndRemoveUntil(
+                      MaterialPageRoute(builder: (_) => const Dashboard()),
+                      (route) => false,
+                    );
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF6366F1),

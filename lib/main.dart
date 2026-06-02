@@ -73,6 +73,7 @@ class _AuthGateState extends State<AuthGate> {
         final session = snapshot.hasData ? snapshot.data!.session : null;
 
         if (session != null) {
+          debugPrint('🔑 AuthGate: Session detected for ${session.user.email}');
           return FutureBuilder(
             key: _futureKey,
             future: Supabase.instance.client
@@ -88,9 +89,11 @@ class _AuthGateState extends State<AuthGate> {
               }
 
               final profile = profileSnapshot.data;
+              debugPrint('👤 AuthGate: Profile data: $profile');
 
               // If profile is missing or position is null, go to RegisterPage
               if (profile == null || profile['position'] == null) {
+                debugPrint('⚠️ AuthGate: Profile incomplete, showing RegisterPage');
                 return RegisterPage(
                   initialEmail: session.user.email,
                   initialName: session.user.userMetadata?['full_name'],
@@ -100,11 +103,13 @@ class _AuthGateState extends State<AuthGate> {
                 );
               }
 
+              debugPrint('✅ AuthGate: Profile complete, showing Dashboard');
               return const Dashboard();
             },
           );
         }
 
+        debugPrint('🚪 AuthGate: No session, showing LoginPage');
         return const LoginPage();
       },
     );
