@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:qcurobotics_management_app/Pages/Members/Members.dart';
+import 'package:qcurobotics_management_app/Pages/Profile/profile_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class Dashboard extends StatefulWidget {
@@ -147,9 +148,9 @@ class _DashboardState extends State<Dashboard> {
 
   String _getGreeting() {
     final hour = DateTime.now().hour;
-    if (hour < 12) return 'Good Morning';
-    if (hour < 17) return 'Good Afternoon';
-    return 'Good Evening';
+    if (hour < 12) return 'Good Morning,';
+    if (hour < 17) return 'Good Afternoon,';
+    return 'Good Evening,';
   }
 
   @override
@@ -430,60 +431,18 @@ class _TopBar extends StatelessWidget {
     this.photoUrl,
   });
 
-  void _showProfileMenu(BuildContext context) {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1a1a3e),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('User Credentials',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Email: ${user.email}',
-                style: const TextStyle(color: Colors.white70)),
-            const SizedBox(height: 8),
-            Text('Name: ${user.userMetadata?['full_name'] ?? 'N/A'}',
-                style: const TextStyle(color: Colors.white70)),
-            const SizedBox(height: 8),
-            Text('User ID: ${user.id}',
-                style: const TextStyle(color: Colors.white70, fontSize: 12)),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close', style: TextStyle(color: Colors.white54)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await Supabase.instance.client.auth.signOut();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final firstName = (userName ?? 'Super Admin').split(' ').first;
+    final firstName = (userName ?? 'User').split(' ').first;
 
     return Row(
       children: [
         GestureDetector(
-          onTap: () => _showProfileMenu(context),
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ProfilePage()),
+            );
+          },
           child: Container(
             padding: const EdgeInsets.all(2.5),
             decoration: const BoxDecoration(
@@ -513,7 +472,7 @@ class _TopBar extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '$greeting, $firstName',
+                greeting,
                 style: const TextStyle(
                   fontSize: 13,
                   color: Colors.white54,
@@ -521,7 +480,7 @@ class _TopBar extends StatelessWidget {
                 ),
               ),
               Text(
-                userName ?? 'Super Admin',
+                firstName,
                 style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w900,
