@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:qcurobotics_management_app/Pages/Auth/login_page.dart';
 import 'package:qcurobotics_management_app/Pages/Dashboard/Dashboard.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -34,7 +35,49 @@ class MyApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
       ),
-      home: Dashboard(),
+      home: const AuthGate(),
+    );
+  }
+}
+
+class AuthGate extends StatefulWidget {
+  const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  @override
+  void initState() {
+    super.initState();
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      final AuthChangeEvent event = data.event;
+      if (event == AuthChangeEvent.signedIn && mounted) {
+        // Navigator handles could go here if we were pushing routes
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<AuthState>(
+      stream: Supabase.instance.client.auth.onAuthStateChange,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final session = snapshot.hasData ? snapshot.data!.session : null;
+
+        if (session != null) {
+          return const Dashboard();
+        }
+
+        return const LoginPage();
+      },
     );
   }
 }
