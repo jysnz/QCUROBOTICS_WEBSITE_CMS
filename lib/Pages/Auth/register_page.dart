@@ -4,8 +4,6 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/auth_widgets.dart';
-
-import '../../main.dart';
 import '../Dashboard/Dashboard.dart';
 
 class RegisterPage extends StatefulWidget {
@@ -31,6 +29,7 @@ class RegisterPage extends StatefulWidget {
 class _RegisterPageState extends State<RegisterPage> {
   late final TextEditingController _emailController;
   late final TextEditingController _passwordController;
+  late final TextEditingController _confirmPasswordController;
   late final TextEditingController _nameController;
   
   File? _imageFile;
@@ -49,15 +48,18 @@ class _RegisterPageState extends State<RegisterPage> {
   bool _hasUppercase = false;
   bool _hasNumber = false;
   bool _hasSpecialChar = false;
+  bool _passwordsMatch = false;
 
   @override
   void initState() {
     super.initState();
     _emailController = TextEditingController(text: widget.initialEmail);
     _passwordController = TextEditingController();
+    _confirmPasswordController = TextEditingController();
     _nameController = TextEditingController(text: widget.initialName);
     
     _passwordController.addListener(_validatePassword);
+    _confirmPasswordController.addListener(_validateConfirmPassword);
     _fetchTeams();
   }
 
@@ -74,10 +76,17 @@ class _RegisterPageState extends State<RegisterPage> {
   bool get _isPasswordValid =>
       _hasMinLength && _hasUppercase && _hasNumber && _hasSpecialChar;
 
+  void _validateConfirmPassword() {
+    setState(() {
+      _passwordsMatch = _confirmPasswordController.text == _passwordController.text;
+    });
+  }
+
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     _nameController.dispose();
     super.dispose();
   }
@@ -224,6 +233,12 @@ class _RegisterPageState extends State<RegisterPage> {
     if (!_isPasswordValid) {
       debugPrint('❌ Validation failed: Weak password');
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please meet all password requirements')));
+      return;
+    }
+
+    if (!_passwordsMatch) {
+      debugPrint('❌ Validation failed: Passwords do not match');
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Passwords do not match')));
       return;
     }
 
@@ -475,6 +490,33 @@ class _RegisterPageState extends State<RegisterPage> {
                             label: 'One special character',
                             isValid: _hasSpecialChar,
                           ),
+                          
+                          const SizedBox(height: 16),
+                          
+                          // Confirm Password TextField
+                          AuthTextField(
+                            controller: _confirmPasswordController,
+                            label: 'Confirm Password',
+                            icon: Icons.lock_outline_rounded,
+                            obscureText: true,
+                          ),
+                          if (_confirmPasswordController.text.isNotEmpty && !_passwordsMatch)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8, left: 4),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.error_outline_rounded, size: 14, color: Colors.red.withValues(alpha: 0.8)),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Passwords do not match',
+                                    style: TextStyle(
+                                      color: Colors.red.withValues(alpha: 0.8),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           
                           const SizedBox(height: 16),
                           
