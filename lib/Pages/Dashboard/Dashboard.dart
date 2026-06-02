@@ -176,7 +176,11 @@ class _DashboardState extends State<Dashboard> {
                     SliverToBoxAdapter(
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-                        child: _TopBar(greeting: _getGreeting()),
+                        child: _TopBar(
+                          greeting: _getGreeting(),
+                          userName: _supabase.auth.currentUser?.userMetadata?['full_name'],
+                          photoUrl: _supabase.auth.currentUser?.userMetadata?['avatar_url'],
+                        ),
                       ),
                     ),
 
@@ -417,29 +421,89 @@ class _SectionHeader extends StatelessWidget {
 
 class _TopBar extends StatelessWidget {
   final String greeting;
-  const _TopBar({required this.greeting});
+  final String? userName;
+  final String? photoUrl;
+
+  const _TopBar({
+    required this.greeting,
+    this.userName,
+    this.photoUrl,
+  });
+
+  void _showProfileMenu(BuildContext context) {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1a1a3e),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('User Credentials',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Email: ${user.email}',
+                style: const TextStyle(color: Colors.white70)),
+            const SizedBox(height: 8),
+            Text('Name: ${user.userMetadata?['full_name'] ?? 'N/A'}',
+                style: const TextStyle(color: Colors.white70)),
+            const SizedBox(height: 8),
+            Text('User ID: ${user.id}',
+                style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await Supabase.instance.client.auth.signOut();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final firstName = (userName ?? 'Super Admin').split(' ').first;
+
     return Row(
       children: [
-        Container(
-          padding: const EdgeInsets.all(2.5),
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              colors: [Color(0xFF6366F1), Color(0xFFEC4899)],
-            ),
-          ),
+        GestureDetector(
+          onTap: () => _showProfileMenu(context),
           child: Container(
+            padding: const EdgeInsets.all(2.5),
             decoration: const BoxDecoration(
               shape: BoxShape.circle,
-              color: Color(0xFF0B1020),
+              gradient: LinearGradient(
+                colors: [Color(0xFF6366F1), Color(0xFFEC4899)],
+              ),
             ),
-            padding: const EdgeInsets.all(2),
-            child: const CircleAvatar(
-              radius: 23,
-              backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11'),
+            child: Container(
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Color(0xFF0B1020),
+              ),
+              padding: const EdgeInsets.all(2),
+              child: CircleAvatar(
+                radius: 23,
+                backgroundImage: photoUrl != null
+                    ? NetworkImage(photoUrl!)
+                    : const NetworkImage('https://i.pravatar.cc/150?img=11'),
+              ),
             ),
           ),
         ),
@@ -449,16 +513,16 @@ class _TopBar extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                greeting,
+                '$greeting, $firstName',
                 style: const TextStyle(
                   fontSize: 13,
                   color: Colors.white54,
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              const Text(
-                'Super Admin',
-                style: TextStyle(
+              Text(
+                userName ?? 'Super Admin',
+                style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w900,
                   color: Colors.white,
