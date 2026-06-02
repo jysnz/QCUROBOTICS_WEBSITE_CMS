@@ -4,6 +4,8 @@ import 'package:qcurobotics_management_app/Pages/Auth/login_page.dart';
 import 'package:qcurobotics_management_app/Pages/Dashboard/Dashboard.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'Pages/Auth/register_page.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -25,6 +27,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'Flutter Demo',
       theme: ThemeData(
         brightness: Brightness.dark,
@@ -48,14 +51,11 @@ class AuthGate extends StatefulWidget {
 }
 
 class _AuthGateState extends State<AuthGate> {
-  @override
-  void initState() {
-    super.initState();
-    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
-      final AuthChangeEvent event = data.event;
-      if (event == AuthChangeEvent.signedIn && mounted) {
-        // Navigator handles could go here if we were pushing routes
-      }
+  Key _futureKey = UniqueKey();
+
+  void _refreshProfile() {
+    setState(() {
+      _futureKey = UniqueKey();
     });
   }
 
@@ -73,7 +73,36 @@ class _AuthGateState extends State<AuthGate> {
         final session = snapshot.hasData ? snapshot.data!.session : null;
 
         if (session != null) {
-          return const Dashboard();
+          return FutureBuilder(
+            key: _futureKey,
+            future: Supabase.instance.client
+                .from('user_accounts')
+                .select()
+                .eq('id', session.user.id)
+                .maybeSingle(),
+            builder: (context, profileSnapshot) {
+              if (profileSnapshot.connectionState == ConnectionState.waiting) {
+                return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                );
+              }
+
+              final profile = profileSnapshot.data;
+
+              // If profile is missing or position is null, go to RegisterPage
+              if (profile == null || profile['position'] == null) {
+                return RegisterPage(
+                  initialEmail: session.user.email,
+                  initialName: session.user.userMetadata?['full_name'],
+                  initialImageUrl: session.user.userMetadata?['avatar_url'],
+                  isGoogleSignUp: true,
+                  onProfileComplete: _refreshProfile,
+                );
+              }
+
+              return const Dashboard();
+            },
+          );
         }
 
         return const LoginPage();

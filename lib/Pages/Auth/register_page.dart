@@ -1,18 +1,36 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/auth_widgets.dart';
 
 class RegisterPage extends StatefulWidget {
-  const RegisterPage({super.key});
+  final String? initialEmail;
+  final String? initialName;
+  final String? initialImageUrl;
+  final bool isGoogleSignUp;
+  final VoidCallback? onProfileComplete;
+
+  const RegisterPage({
+    super.key,
+    this.initialEmail,
+    this.initialName,
+    this.initialImageUrl,
+    this.isGoogleSignUp = false,
+    this.onProfileComplete,
+  });
 
   @override
   State<RegisterPage> createState() => _RegisterPageState();
 }
 
 class _RegisterPageState extends State<RegisterPage> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _nameController = TextEditingController();
+  late final TextEditingController _emailController;
+  late final TextEditingController _passwordController;
+  late final TextEditingController _nameController;
+  
+  File? _imageFile;
+  final ImagePicker _picker = ImagePicker();
   
   String _selectedPosition = 'Media';
   final List<String> _positions = ['Media', 'Member', 'Team Player'];
@@ -22,10 +40,42 @@ class _RegisterPageState extends State<RegisterPage> {
   bool _isLoadingTeams = false;
   bool _isRegistering = false;
 
+  // Password validation states
+  bool _hasMinLength = false;
+  bool _hasUppercase = false;
+  bool _hasNumber = false;
+  bool _hasSpecialChar = false;
+
   @override
   void initState() {
     super.initState();
+    _emailController = TextEditingController(text: widget.initialEmail);
+    _passwordController = TextEditingController();
+    _nameController = TextEditingController(text: widget.initialName);
+    
+    _passwordController.addListener(_validatePassword);
     _fetchTeams();
+  }
+
+  void _validatePassword() {
+    final password = _passwordController.text;
+    setState(() {
+      _hasMinLength = password.length >= 8;
+      _hasUppercase = password.contains(RegExp(r'[A-Z]'));
+      _hasNumber = password.contains(RegExp(r'[0-9]'));
+      _hasSpecialChar = password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'));
+    });
+  }
+
+  bool get _isPasswordValid =>
+      _hasMinLength && _hasUppercase && _hasNumber && _hasSpecialChar;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _nameController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchTeams() async {
@@ -42,9 +92,32 @@ class _RegisterPageState extends State<RegisterPage> {
     }
   }
 
+  Future<void> _pickImage() async {
+    try {
+      final XFile? pickedFile = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 75,
+      );
+      if (pickedFile != null) {
+        setState(() {
+          _imageFile = File(pickedFile.path);
+        });
+      }
+    } catch (e) {
+      debugPrint('Error picking image: $e');
+    }
+  }
+
   Future<void> _register() async {
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty || _nameController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all required fields')));
+      return;
+    }
+
+    if (!_isPasswordValid) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please meet all password requirements')));
       return;
     }
 
@@ -55,22 +128,61 @@ class _RegisterPageState extends State<RegisterPage> {
 
     setState(() => _isRegistering = true);
     try {
-      await Supabase.instance.client.auth.signUp(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-        data: {
-          'full_name': _nameController.text.trim(),
-          'position': _selectedPosition,
-          if (_selectedPosition == 'Team Player' && _selectedTeamId != null)
+      final supabase = Supabase.instance.client;
+      final user = supabase.auth.currentUser;
+
+      if (user != null || widget.isGoogleSignUp) {
+        // Mode: Complete Profile (User already has an Auth account)
+        final targetUser = user ?? supabase.auth.currentUser;
+        if (targetUser != null) {
+          // Update password if it was changed/set
+          if (_passwordController.text.isNotEmpty) {
+            await supabase.auth.updateUser(
+              UserAttributes(password: _passwordController.text.trim()),
+            );
+          }
+
+          // Save profile details to user_accounts
+          await supabase.from('user_accounts').upsert({
+            'id': targetUser.id,
+            'email': _emailController.text.trim(),
+            'full_name': _nameController.text.trim(),
+            'position': _selectedPosition,
             'team_id': _selectedTeamId,
+          });
         }
-      );
+      } else {
+        // Mode: Initial Sign Up (Create the Auth account first)
+        final response = await supabase.auth.signUp(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+          data: {
+            'full_name': _nameController.text.trim(),
+            // We intentionally do NOT send position here to force the 2-step flow via AuthGate
+          }
+        );
+
+        if (response.session == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Account created! Please confirm your email.')),
+            );
+            Navigator.of(context).pop();
+            return;
+          }
+        }
+      }
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Registration successful! Please check your email or login.')),
+          const SnackBar(content: Text('Profile saved successfully!')),
         );
-        Navigator.of(context).pop();
+        if (widget.onProfileComplete != null) {
+          widget.onProfileComplete!();
+        } else {
+          // If we popped, AuthGate will re-evaluate and show RegisterPage (Complete Profile) or Dashboard
+          Navigator.of(context).pop();
+        }
       }
     } on AuthException catch (e) {
       if (mounted) {
@@ -93,10 +205,16 @@ class _RegisterPageState extends State<RegisterPage> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        leading: widget.isGoogleSignUp 
+          ? IconButton(
+              icon: const Icon(Icons.logout_rounded, color: Colors.white70),
+              onPressed: () => Supabase.instance.client.auth.signOut(),
+              tooltip: 'Logout',
+            )
+          : IconButton(
+              icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
       ),
       body: Stack(
         children: [
@@ -108,10 +226,10 @@ class _RegisterPageState extends State<RegisterPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text(
-                      'Create Account',
+                    Text(
+                      widget.isGoogleSignUp ? 'Complete Profile' : 'Create Account',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 32,
                         fontWeight: FontWeight.w900,
                         color: Colors.white,
@@ -120,7 +238,9 @@ class _RegisterPageState extends State<RegisterPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Join the QCU Robotics team',
+                      widget.isGoogleSignUp 
+                        ? 'Finish setting up your account' 
+                        : 'Join the QCU Robotics team',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 15,
@@ -129,10 +249,69 @@ class _RegisterPageState extends State<RegisterPage> {
                       ),
                     ),
                     const SizedBox(height: 32),
+                    // Profile Image Placeholder
+                    Center(
+                      child: GestureDetector(
+                        onTap: _pickImage,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF6366F1), Color(0xFFEC4899)],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF6366F1).withValues(alpha: 0.3),
+                                blurRadius: 20,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: Stack(
+                            children: [
+                              CircleAvatar(
+                                radius: 50,
+                                backgroundColor: const Color(0xFF1F2937),
+                                backgroundImage: _imageFile != null
+                                    ? FileImage(_imageFile!)
+                                    : (widget.initialImageUrl != null
+                                        ? NetworkImage(widget.initialImageUrl!)
+                                        : null),
+                                child: (_imageFile == null && widget.initialImageUrl == null)
+                                    ? const Icon(Icons.person_rounded, size: 50, color: Colors.white24)
+                                    : null,
+                              ),
+                              Positioned(
+                                bottom: 0,
+                                right: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFF6366F1),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.camera_alt_rounded, size: 18, color: Colors.white),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 32),
                     AuthGlassCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          AuthTextField(
+                            controller: _emailController,
+                            label: 'Email',
+                            icon: Icons.email_outlined,
+                            keyboardType: TextInputType.emailAddress,
+                            enabled: !widget.isGoogleSignUp,
+                          ),
+                          const SizedBox(height: 16),
                           AuthTextField(
                             controller: _nameController,
                             label: 'Full Name',
@@ -140,20 +319,45 @@ class _RegisterPageState extends State<RegisterPage> {
                           ),
                           const SizedBox(height: 16),
                           AuthTextField(
-                            controller: _emailController,
-                            label: 'Email',
-                            icon: Icons.email_outlined,
-                            keyboardType: TextInputType.emailAddress,
-                          ),
-                          const SizedBox(height: 16),
-                          AuthTextField(
                             controller: _passwordController,
-                            label: 'Password',
+                            label: widget.isGoogleSignUp ? 'Set Password' : 'Password',
                             icon: Icons.lock_outline_rounded,
                             obscureText: true,
                           ),
+                          const SizedBox(height: 12),
+                          
+                          // Password Requirements Checklist
+                          _PasswordRequirement(
+                            label: 'At least 8 characters',
+                            isValid: _hasMinLength,
+                          ),
+                          _PasswordRequirement(
+                            label: 'One uppercase letter',
+                            isValid: _hasUppercase,
+                          ),
+                          _PasswordRequirement(
+                            label: 'One number',
+                            isValid: _hasNumber,
+                          ),
+                          _PasswordRequirement(
+                            label: 'One special character',
+                            isValid: _hasSpecialChar,
+                          ),
+                          
                           const SizedBox(height: 16),
                           
+                          // Position Header
+                          const Padding(
+                            padding: EdgeInsets.only(left: 4, bottom: 8),
+                            child: Text(
+                              'Position',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
                           // Position Dropdown
                           Container(
                             decoration: BoxDecoration(
@@ -193,6 +397,18 @@ class _RegisterPageState extends State<RegisterPage> {
                           
                           if (_selectedPosition == 'Team Player') ...[
                             const SizedBox(height: 16),
+                            // Team Header
+                            const Padding(
+                              padding: EdgeInsets.only(left: 4, bottom: 8),
+                              child: Text(
+                                'Select Team',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
                             if (_isLoadingTeams)
                               const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1)))
                             else
@@ -230,7 +446,7 @@ class _RegisterPageState extends State<RegisterPage> {
                           ],
                           const SizedBox(height: 32),
                           AuthButton(
-                            label: 'Register',
+                            label: widget.isGoogleSignUp ? 'Save Profile' : 'Register',
                             onPressed: _register,
                             isLoading: _isRegistering,
                             color: const Color(0xFF10B981),
@@ -241,6 +457,41 @@ class _RegisterPageState extends State<RegisterPage> {
                   ],
                 ),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PasswordRequirement extends StatelessWidget {
+  final String label;
+  final bool isValid;
+
+  const _PasswordRequirement({
+    required this.label,
+    required this.isValid,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 4),
+      child: Row(
+        children: [
+          Icon(
+            isValid ? Icons.check_circle_rounded : Icons.circle_outlined,
+            size: 14,
+            color: isValid ? const Color(0xFF10B981) : Colors.white24,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: isValid ? Colors.white70 : Colors.white38,
+              fontWeight: isValid ? FontWeight.w600 : FontWeight.w400,
             ),
           ),
         ],

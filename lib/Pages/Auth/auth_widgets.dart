@@ -87,6 +87,7 @@ class AuthTextField extends StatelessWidget {
   final IconData icon;
   final bool obscureText;
   final TextInputType keyboardType;
+  final bool enabled;
 
   const AuthTextField({
     super.key,
@@ -95,6 +96,7 @@ class AuthTextField extends StatelessWidget {
     required this.icon,
     this.obscureText = false,
     this.keyboardType = TextInputType.text,
+    this.enabled = true,
   });
 
   @override
@@ -103,7 +105,11 @@ class AuthTextField extends StatelessWidget {
       controller: controller,
       obscureText: obscureText,
       keyboardType: keyboardType,
-      style: const TextStyle(color: Colors.white, fontSize: 15),
+      enabled: enabled,
+      style: TextStyle(
+        color: enabled ? Colors.white : Colors.white54,
+        fontSize: 15,
+      ),
       decoration: InputDecoration(
         labelText: label,
         labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5)),

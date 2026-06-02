@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ProfilePage extends StatelessWidget {
@@ -118,6 +119,11 @@ class ProfilePage extends StatelessWidget {
                           width: double.infinity,
                           child: ElevatedButton.icon(
                             onPressed: () async {
+                              try {
+                                await GoogleSignIn().signOut();
+                              } catch (e) {
+                                debugPrint('Google sign out error: $e');
+                              }
                               await Supabase.instance.client.auth.signOut();
                               if (context.mounted) {
                                 Navigator.pop(context);
