@@ -4,7 +4,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/auth_widgets.dart';
-import '../Dashboard/Dashboard.dart';
+import 'welcome_page.dart';
 
 class RegisterPage extends StatefulWidget {
   final String? initialEmail;
@@ -124,10 +124,10 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   Future<void> _showSuccessDialog() async {
-    return showDialog(
+    await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext context) {
+      builder: (BuildContext dialogContext) {
         return AlertDialog(
           backgroundColor: const Color(0xFF111827),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -167,14 +167,7 @@ class _RegisterPageState extends State<RegisterPage> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () {
-                    Navigator.of(context).pop(); // Close dialog
-                    
-                    // Force a fresh navigation to the root (AuthGate)
-                    // This ensures the Navigator stack is cleared and AuthGate re-evaluates
-                    Navigator.of(context).pushAndRemoveUntil(
-                      MaterialPageRoute(builder: (_) => const Dashboard()),
-                      (route) => false,
-                    );
+                    Navigator.of(dialogContext).pop();
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF6366F1),
@@ -189,6 +182,12 @@ class _RegisterPageState extends State<RegisterPage> {
           ),
         );
       },
+    );
+
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const WelcomePage()),
+      (route) => false,
     );
   }
 
