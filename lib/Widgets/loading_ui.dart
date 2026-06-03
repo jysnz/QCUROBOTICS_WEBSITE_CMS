@@ -443,6 +443,84 @@ class TeamsSkeleton extends StatelessWidget {
   }
 }
 
+class CompetitionSkeleton extends StatelessWidget {
+  const CompetitionSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                Skeleton(height: 44, width: 44, borderRadius: 16),
+                SizedBox(width: 14),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Skeleton(height: 12, width: 80),
+                    SizedBox(height: 8),
+                    Skeleton(height: 24, width: 120),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 32),
+          _buildSectionHeader(),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: Skeleton(height: 60, width: double.infinity, borderRadius: 18),
+          ),
+          const SizedBox(height: 20),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.02),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+              ),
+              child: const Column(
+                children: [
+                  Row(
+                    children: [
+                      Skeleton(height: 20, width: 20),
+                      SizedBox(width: 12),
+                      Skeleton(height: 20, width: 150),
+                    ],
+                  ),
+                  SizedBox(height: 20),
+                  SkeletonCard(),
+                  SkeletonCard(),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader() {
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(24, 0, 24, 16),
+      child: Row(
+        children: [
+          Skeleton(height: 22, width: 4, borderRadius: 10),
+          SizedBox(width: 12),
+          Skeleton(height: 24, width: 140),
+        ],
+      ),
+    );
+  }
+}
+
 class SkeletonHeader extends StatelessWidget {
   final double width;
   const SkeletonHeader({super.key, this.width = 150});

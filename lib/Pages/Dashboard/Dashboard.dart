@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:qcurobotics_management_app/Pages/Members/Members.dart';
 import 'package:qcurobotics_management_app/Pages/Profile/profile_page.dart';
 import 'package:qcurobotics_management_app/Pages/Teams/Teams.dart';
+import 'package:qcurobotics_management_app/Pages/Tournaments/Tournaments.dart';
 import 'package:qcurobotics_management_app/Services/cache_service.dart';
 import 'package:qcurobotics_management_app/Widgets/loading_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -657,6 +658,7 @@ class _ManagementRow extends StatelessWidget {
       label: 'Competitions',
       icon: Icons.sports_esports_rounded,
       color: Color(0xFFF59E0B),
+      destination: Tournaments(),
     ),
     _MgmtItem(
       label: 'Contents',
