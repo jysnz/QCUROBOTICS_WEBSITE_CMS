@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:qcurobotics_management_app/Services/cache_service.dart';
+import 'package:qcurobotics_management_app/Widgets/loading_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 part 'member_form.dart';
@@ -13,6 +15,9 @@ class Members extends StatefulWidget {
 
 class _MembersState extends State<Members> {
   final _supabase = Supabase.instance.client;
+  final _cache = CacheService();
+  static const String _membersCacheKey = 'members_page_data';
+  static const Duration _membersCacheDuration = Duration(hours: 1);
 
   late Future<_MembersPageData> _membersFuture;
   int? _selectedSeasonId;
@@ -25,7 +30,41 @@ class _MembersState extends State<Members> {
   }
 
   Future<_MembersPageData> _loadMembersData() async {
-    debugPrint('[_loadMembersData] fetching data...');
+    debugPrint('[_loadMembersData] checking cache...');
+    
+    // 1. Try to load from cache first
+    final cachedMap = await _cache.getData(_membersCacheKey);
+    if (cachedMap != null) {
+      try {
+        final cachedData = _MembersPageData.fromMap(cachedMap);
+        debugPrint('[_loadMembersData] cache hit');
+        
+        // Return cache but trigger a background refresh if stale
+        _cache.getData(_membersCacheKey, maxAge: _membersCacheDuration).then((fresh) {
+          if (fresh == null) {
+            debugPrint('[_loadMembersData] cache stale, refreshing in background...');
+            _fetchAndCacheMembers().then((freshData) {
+              if (mounted) {
+                setState(() {
+                  _membersFuture = Future.value(freshData);
+                });
+              }
+            });
+          }
+        });
+        
+        return cachedData;
+      } catch (e) {
+        debugPrint('[_loadMembersData] cache error: $e');
+      }
+    }
+
+    // 2. No cache or error, fetch from network
+    return _fetchAndCacheMembers();
+  }
+
+  Future<_MembersPageData> _fetchAndCacheMembers() async {
+    debugPrint('[_fetchAndCacheMembers] fetching data...');
     final results = await Future.wait([
       _supabase.from('member_team_seasons').select('''
             id,
@@ -61,10 +100,10 @@ class _MembersState extends State<Members> {
       _supabase.from('seasons').select('id, season_name').order('id'),
       _supabase.from('roles').select('id, role_name').order('role_name'),
     ]);
-    debugPrint('[_loadMembersData] fetched ${results.length} result sets');
+    debugPrint('[_fetchAndCacheMembers] fetched ${results.length} result sets');
 
     final assignments = _asMapList(results[0]);
-    debugPrint('[_loadMembersData] assignments count: ${assignments.length}');
+    debugPrint('[_fetchAndCacheMembers] assignments count: ${assignments.length}');
     final roleRows = _asMapList(results[1]);
     final members = _asMapList(results[2]);
     final mediaTeam = _asMapList(results[3])
@@ -154,22 +193,10 @@ class _MembersState extends State<Members> {
       (sum, s) => sum + s.teamsById.values.fold<int>(0, (tSum, t) => tSum + t.players.length),
     );
     debugPrint(
-      '[_loadMembersData] built ${seasonGroups.length} seasons, $totalPlayers players',
+      '[_fetchAndCacheMembers] built ${seasonGroups.length} seasons, $totalPlayers players',
     );
-    for (final s in seasonGroups) {
-      for (final t in s.teamsById.values) {
-        debugPrint(
-          '[_loadMembersData]   season="${s.name}" team="${t.name}" players=${t.players.length}',
-        );
-        for (final p in t.players) {
-          debugPrint(
-            '[_loadMembersData]     player id=${p.id} name="${p.name}" isActive=${p.isActive} isGraduated=${p.isGraduated}',
-          );
-        }
-      }
-    }
 
-    return _MembersPageData(
+    final data = _MembersPageData(
       seasons: seasonGroups,
       members: members,
       mediaTeam: mediaTeam,
@@ -177,11 +204,16 @@ class _MembersState extends State<Members> {
       seasonOptions: seasons,
       roles: roles,
     );
+
+    // Save to persistent cache
+    await _cache.saveData(_membersCacheKey, data.toMap());
+
+    return data;
   }
 
   Future<void> _refresh() async {
     debugPrint('[_refresh] called');
-    final future = _loadMembersData();
+    final future = _fetchAndCacheMembers();
     setState(() {
       _membersFuture = future;
     });
@@ -192,7 +224,7 @@ class _MembersState extends State<Members> {
   Future<void> _reload() async {
     if (!mounted) return;
     debugPrint('[_reload] called');
-    final future = _loadMembersData();
+    final future = _fetchAndCacheMembers();
     setState(() {
       _membersFuture = future;
     });
@@ -280,11 +312,7 @@ class _MembersState extends State<Members> {
                       else if (data == null)
                         const SliverFillRemaining(
                           hasScrollBody: false,
-                          child: Center(
-                            child: CircularProgressIndicator(
-                              color: Color(0xFF818CF8),
-                            ),
-                          ),
+                          child: MembersSkeleton(),
                         )
                       else ...[
                         SliverToBoxAdapter(
@@ -429,6 +457,28 @@ class _MembersPageData {
     required this.roles,
   });
 
+  Map<String, dynamic> toMap() {
+    return {
+      'seasons': seasons.map((s) => s.toMap()).toList(),
+      'members': members,
+      'mediaTeam': mediaTeam,
+      'teams': teams.map((t) => t.toMap()).toList(),
+      'seasonOptions': seasonOptions.map((s) => s.toMap()).toList(),
+      'roles': roles.map((r) => r.toMap()).toList(),
+    };
+  }
+
+  factory _MembersPageData.fromMap(Map<String, dynamic> map) {
+    return _MembersPageData(
+      seasons: (map['seasons'] as List).map((s) => _SeasonGroup.fromMap(s)).toList(),
+      members: List<Map<String, dynamic>>.from(map['members']),
+      mediaTeam: List<Map<String, dynamic>>.from(map['mediaTeam']),
+      teams: (map['teams'] as List).map((t) => _TeamOption.fromMap(t)).toList(),
+      seasonOptions: (map['seasonOptions'] as List).map((s) => _SeasonOption.fromMap(s)).toList(),
+      roles: (map['roles'] as List).map((r) => _RoleOption.fromMap(r)).toList(),
+    );
+  }
+
   int get playerCount {
     var total = 0;
     for (final season in seasons) {
@@ -450,6 +500,24 @@ class _SeasonGroup {
     required this.name,
     required this.teamsById,
   });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'teamsById': teamsById.map((k, v) => MapEntry(k.toString(), v.toMap())),
+    };
+  }
+
+  factory _SeasonGroup.fromMap(Map<String, dynamic> map) {
+    return _SeasonGroup(
+      id: map['id'],
+      name: map['name'],
+      teamsById: (map['teamsById'] as Map).map(
+        (k, v) => MapEntry(int.parse(k), _TeamGroup.fromMap(v)),
+      ),
+    );
+  }
 
   List<_TeamGroup> get teams {
     final teams = teamsById.values.toList()
@@ -476,6 +544,26 @@ class _TeamGroup {
     required this.code,
     required this.players,
   });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'number': number,
+      'code': code,
+      'players': players.map((p) => p.toMap()).toList(),
+    };
+  }
+
+  factory _TeamGroup.fromMap(Map<String, dynamic> map) {
+    return _TeamGroup(
+      id: map['id'],
+      name: map['name'],
+      number: map['number'],
+      code: map['code'],
+      players: (map['players'] as List).map((p) => _TeamPlayer.fromMap(p)).toList(),
+    );
+  }
 }
 
 class _TeamPlayer {
@@ -500,6 +588,34 @@ class _TeamPlayer {
     required this.isGraduated,
     required this.roles,
   });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'assignmentId': assignmentId,
+      'teamId': teamId,
+      'seasonId': seasonId,
+      'name': name,
+      'imageUrl': imageUrl,
+      'isActive': isActive,
+      'isGraduated': isGraduated,
+      'roles': roles,
+    };
+  }
+
+  factory _TeamPlayer.fromMap(Map<String, dynamic> map) {
+    return _TeamPlayer(
+      id: map['id'],
+      assignmentId: map['assignmentId'],
+      teamId: map['teamId'],
+      seasonId: map['seasonId'],
+      name: map['name'],
+      imageUrl: map['imageUrl'],
+      isActive: map['isActive'],
+      isGraduated: map['isGraduated'],
+      roles: List<String>.from(map['roles']),
+    );
+  }
 }
 
 class _TeamOption {
@@ -508,6 +624,22 @@ class _TeamOption {
   final int? seasonId;
 
   const _TeamOption({required this.id, required this.name, this.seasonId});
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'seasonId': seasonId,
+    };
+  }
+
+  factory _TeamOption.fromMap(Map<String, dynamic> map) {
+    return _TeamOption(
+      id: map['id'],
+      name: map['name'],
+      seasonId: map['seasonId'],
+    );
+  }
 
   factory _TeamOption.fromRow(Map<String, dynamic> row) {
     final id = _intValue(row['id']);
@@ -533,6 +665,20 @@ class _SeasonOption {
 
   const _SeasonOption({required this.id, required this.name});
 
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+    };
+  }
+
+  factory _SeasonOption.fromMap(Map<String, dynamic> map) {
+    return _SeasonOption(
+      id: map['id'],
+      name: map['name'],
+    );
+  }
+
   factory _SeasonOption.fromRow(Map<String, dynamic> row) {
     final id = _intValue(row['id']);
     return _SeasonOption(id: id, name: _displaySeasonName(row, id ?? 0));
@@ -544,6 +690,20 @@ class _RoleOption {
   final String name;
 
   const _RoleOption({required this.id, required this.name});
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+    };
+  }
+
+  factory _RoleOption.fromMap(Map<String, dynamic> map) {
+    return _RoleOption(
+      id: map['id'],
+      name: map['name'],
+    );
+  }
 
   factory _RoleOption.fromRow(Map<String, dynamic> row) {
     return _RoleOption(
@@ -1054,6 +1214,8 @@ class _GenericMemberCard extends StatelessWidget {
     final imageUrl = _nullableString(
       row['profile_image_url'] ?? row['image_url'] ?? row['avatar_url'],
     );
+    final isActive = row['is_active'] == true;
+    final isGraduated = row['is_graduated'] == true;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
@@ -1067,13 +1229,29 @@ class _GenericMemberCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    name,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          name,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      if (isGraduated)
+                        const _StatusPill(
+                          label: 'Graduated',
+                          color: Color(0xFFF59E0B),
+                        )
+                      else if (isActive)
+                        const _StatusPill(
+                          label: 'Active',
+                          color: Color(0xFF10B981),
+                        ),
+                    ],
                   ),
                   if (subtitle.isNotEmpty) ...[
                     const SizedBox(height: 3),
@@ -1089,6 +1267,7 @@ class _GenericMemberCard extends StatelessWidget {
                 ],
               ),
             ),
+            const SizedBox(width: 8),
             _SmallIconButton(
               icon: Icons.edit_rounded,
               color: const Color(0xFF34D399),
@@ -1409,6 +1588,25 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
   bool _isSaving = false;
   bool _isUploadingPicture = false;
 
+  String? _initialName;
+  String? _initialImageUrl;
+  int? _initialTeamId;
+  int? _initialSeasonId;
+  bool _initialIsActive = true;
+  bool _initialIsGraduated = false;
+  Set<int> _initialRoleIds = {};
+
+  bool get _hasChanges {
+    if (widget.player == null) return true;
+    return _nameController.text.trim() != _initialName
+        || _imageController.text != _initialImageUrl
+        || _teamId != _initialTeamId
+        || _seasonId != _initialSeasonId
+        || _isActive != _initialIsActive
+        || _isGraduated != _initialIsGraduated
+        || _roleIds != _initialRoleIds;
+  }
+
   List<_TeamOption> get _teamsForSeason {
     if (_seasonId == null) return const [];
     return widget.teams
@@ -1431,10 +1629,27 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
         .map((role) => role.id)
         .whereType<int>()
         .toSet();
+    _initialName = player?.name ?? '';
+    _initialImageUrl = player?.imageUrl ?? '';
+    _initialTeamId = player?.teamId;
+    _initialSeasonId = player?.seasonId;
+    _initialIsActive = player?.isActive ?? true;
+    _initialIsGraduated = player?.isGraduated ?? false;
+    _initialRoleIds = Set.from(_roleIds);
+    if (widget.player != null) {
+      _nameController.addListener(_onFieldChanged);
+      _imageController.addListener(_onFieldChanged);
+    }
+  }
+
+  void _onFieldChanged() {
+    setState(() {});
   }
 
   @override
   void dispose() {
+    _nameController.removeListener(_onFieldChanged);
+    _imageController.removeListener(_onFieldChanged);
     _nameController.dispose();
     _imageController.dispose();
     super.dispose();
@@ -1519,7 +1734,10 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
       debugPrint('[_TeamPlayerFormSheet._save] roles done');
 
       if (mounted) {
-        await _showSuccess(isEditing ? 'Team player updated successfully.' : 'Team player added successfully.');
+        await _showSuccess(
+          message: isEditing ? 'Team player updated successfully.' : 'Team player added successfully.',
+          imageUrl: _nullableString(_imageController.text),
+        );
         if (mounted) Navigator.of(context).pop(true);
       }
     } catch (error) {
@@ -1539,12 +1757,30 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
 
     setState(() => _isUploadingPicture = true);
     try {
+      final name = _nameController.text.trim();
       final url = await _uploadMemberPicture(
         supabase: _supabase,
         image: image,
         folder: 'team_players',
+        personName: name.isEmpty ? DateTime.now().microsecondsSinceEpoch.toString() : name,
       );
-      _imageController.text = url;
+
+      if (mounted) {
+        final confirmed = await _showPhotoConfirmDialog(
+          context: context,
+          url: url,
+          name: name.isEmpty ? 'Team Player' : name,
+        );
+        if (confirmed == true) {
+          _imageController.text = url;
+          if (widget.player != null) {
+            await _supabase
+                .from('team_members')
+                .update({'profile_image_url': url})
+                .eq('id', widget.player!.id);
+          }
+        }
+      }
     } catch (error) {
       _showError(error.toString());
     } finally {
@@ -1561,7 +1797,7 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
     );
   }
 
-  Future<void> _showSuccess(String message) async {
+  Future<void> _showSuccess({required String message, String? imageUrl}) async {
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1574,11 +1810,28 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
             Text('Success', style: TextStyle(color: Colors.white)),
           ],
         ),
-        content: Text(message, style: const TextStyle(color: Colors.white70)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (imageUrl != null) ...[
+              ClipOval(
+                child: Image.network(
+                  imageUrl,
+                  width: 80,
+                  height: 80,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            Text(message, style: const TextStyle(color: Colors.white70)),
+          ],
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('OK', style: TextStyle(color: Color(0xFF818CF8))),
+            child: const Text('Done', style: TextStyle(color: Color(0xFF818CF8))),
           ),
         ],
       ),
@@ -1591,6 +1844,7 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
     return _FormSheetScaffold(
       title: isEditing ? 'Edit Team Player' : 'Add Team Player',
       isSaving: _isSaving,
+      canSave: _hasChanges,
       onSave: _save,
       child: Form(
         key: _formKey,
@@ -1681,6 +1935,19 @@ class _MediaMemberFormSheetState extends State<_MediaMemberFormSheet> {
   bool _isSaving = false;
   bool _isUploadingPicture = false;
 
+  String? _initialName;
+  String? _initialPosition;
+  String? _initialImageUrl;
+  bool _initialIsActive = true;
+
+  bool get _hasChanges {
+    if (widget.row == null) return true;
+    return _nameController.text.trim() != _initialName
+        || _positionController.text.trim() != _initialPosition
+        || _imageController.text != _initialImageUrl
+        || _isActive != _initialIsActive;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1689,10 +1956,26 @@ class _MediaMemberFormSheetState extends State<_MediaMemberFormSheet> {
     _positionController.text = _stringValue(row?['position']);
     _imageController.text = _stringValue(row?['image_url']);
     _isActive = row?['is_active'] == true || row == null;
+    _initialName = _stringValue(row?['name']);
+    _initialPosition = _stringValue(row?['position']);
+    _initialImageUrl = _stringValue(row?['image_url']);
+    _initialIsActive = row?['is_active'] == true || row == null;
+    if (widget.row != null) {
+      _nameController.addListener(_onFieldChanged);
+      _positionController.addListener(_onFieldChanged);
+      _imageController.addListener(_onFieldChanged);
+    }
+  }
+
+  void _onFieldChanged() {
+    setState(() {});
   }
 
   @override
   void dispose() {
+    _nameController.removeListener(_onFieldChanged);
+    _positionController.removeListener(_onFieldChanged);
+    _imageController.removeListener(_onFieldChanged);
     _nameController.dispose();
     _positionController.dispose();
     _imageController.dispose();
@@ -1722,7 +2005,10 @@ class _MediaMemberFormSheetState extends State<_MediaMemberFormSheet> {
       }
       debugPrint('[_MediaMemberFormSheet._save] success');
       if (mounted) {
-        await _showSuccess(isEditing ? 'Media member updated successfully.' : 'Media member added successfully.');
+        await _showSuccess(
+          message: isEditing ? 'Media member updated successfully.' : 'Media member added successfully.',
+          imageUrl: _nullableString(_imageController.text),
+        );
         if (mounted) Navigator.of(context).pop(true);
       }
     } catch (error) {
@@ -1742,12 +2028,33 @@ class _MediaMemberFormSheetState extends State<_MediaMemberFormSheet> {
 
     setState(() => _isUploadingPicture = true);
     try {
+      final name = _nameController.text.trim();
       final url = await _uploadMemberPicture(
         supabase: _supabase,
         image: image,
         folder: 'media_team',
+        personName: name.isEmpty ? DateTime.now().microsecondsSinceEpoch.toString() : name,
       );
-      _imageController.text = url;
+
+      if (mounted) {
+        final confirmed = await _showPhotoConfirmDialog(
+          context: context,
+          url: url,
+          name: name.isEmpty ? 'Media Member' : name,
+        );
+        if (confirmed == true) {
+          _imageController.text = url;
+          if (widget.row != null) {
+            final id = _intValue(widget.row!['id']);
+            if (id != null) {
+              await _supabase
+                  .from('media_team')
+                  .update({'image_url': url})
+                  .eq('id', id);
+            }
+          }
+        }
+      }
     } catch (error) {
       _showError(error.toString());
     } finally {
@@ -1764,7 +2071,7 @@ class _MediaMemberFormSheetState extends State<_MediaMemberFormSheet> {
     );
   }
 
-  Future<void> _showSuccess(String message) async {
+  Future<void> _showSuccess({required String message, String? imageUrl}) async {
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1777,11 +2084,28 @@ class _MediaMemberFormSheetState extends State<_MediaMemberFormSheet> {
             Text('Success', style: TextStyle(color: Colors.white)),
           ],
         ),
-        content: Text(message, style: const TextStyle(color: Colors.white70)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (imageUrl != null) ...[
+              ClipOval(
+                child: Image.network(
+                  imageUrl,
+                  width: 80,
+                  height: 80,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            Text(message, style: const TextStyle(color: Colors.white70)),
+          ],
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('OK', style: TextStyle(color: Color(0xFF818CF8))),
+            child: const Text('Done', style: TextStyle(color: Color(0xFF818CF8))),
           ),
         ],
       ),
@@ -1794,6 +2118,7 @@ class _MediaMemberFormSheetState extends State<_MediaMemberFormSheet> {
     return _FormSheetScaffold(
       title: isEditing ? 'Edit Media Member' : 'Add Media Member',
       isSaving: _isSaving,
+      canSave: _hasChanges,
       onSave: _save,
       child: Form(
         key: _formKey,
@@ -1850,6 +2175,20 @@ class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
   bool _isSaving = false;
   bool _isUploadingPicture = false;
 
+  String? _initialName;
+  String? _initialSubtitle;
+  String? _initialImageUrl;
+  bool _initialIsActive = true;
+
+  bool get _hasChanges {
+    if (widget.row == null) return true;
+    if (_nameController.text.trim() != _initialName) return true;
+    if (_imageController.text != _initialImageUrl) return true;
+    if (_isActive != _initialIsActive) return true;
+    if (_subtitleKey != null && _subtitleController.text.trim() != _initialSubtitle) return true;
+    return false;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1878,10 +2217,30 @@ class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
       _imageController.text = _stringValue(row?[_imageKey]);
     }
     _isActive = row?['is_active'] == true || row == null;
+    _initialName = _stringValue(row?[_nameKey]);
+    _initialSubtitle = _subtitleKey != null ? _stringValue(row?[_subtitleKey]) : null;
+    _initialImageUrl = _imageKey != null ? _stringValue(row?[_imageKey]) : null;
+    _initialIsActive = row?['is_active'] == true || row == null;
+    if (widget.row != null) {
+      _nameController.addListener(_onFieldChanged);
+      _imageController.addListener(_onFieldChanged);
+      if (_subtitleKey != null) {
+        _subtitleController.addListener(_onFieldChanged);
+      }
+    }
+  }
+
+  void _onFieldChanged() {
+    setState(() {});
   }
 
   @override
   void dispose() {
+    _nameController.removeListener(_onFieldChanged);
+    _imageController.removeListener(_onFieldChanged);
+    if (_subtitleKey != null) {
+      _subtitleController.removeListener(_onFieldChanged);
+    }
     _nameController.dispose();
     _subtitleController.dispose();
     _imageController.dispose();
@@ -1922,7 +2281,10 @@ class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
       }
       debugPrint('[_GenericMemberFormSheet._save] success');
       if (mounted) {
-        await _showSuccess(isEditing ? 'Member updated successfully.' : 'Member added successfully.');
+        await _showSuccess(
+          message: isEditing ? 'Member updated successfully.' : 'Member added successfully.',
+          imageUrl: _nullableString(_imageController.text),
+        );
         if (mounted) Navigator.of(context).pop(true);
       }
     } catch (error) {
@@ -1942,12 +2304,33 @@ class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
 
     setState(() => _isUploadingPicture = true);
     try {
+      final name = _nameController.text.trim();
       final url = await _uploadMemberPicture(
         supabase: _supabase,
         image: image,
         folder: 'members',
+        personName: name.isEmpty ? DateTime.now().microsecondsSinceEpoch.toString() : name,
       );
-      _imageController.text = url;
+
+      if (mounted) {
+        final confirmed = await _showPhotoConfirmDialog(
+          context: context,
+          url: url,
+          name: name.isEmpty ? 'Member' : name,
+        );
+        if (confirmed == true) {
+          _imageController.text = url;
+          if (widget.row != null) {
+            final id = _intValue(widget.row!['id']);
+            if (id != null) {
+              await _supabase
+                  .from('members')
+                  .update({_imageKey: url})
+                  .eq('id', id);
+            }
+          }
+        }
+      }
     } catch (error) {
       _showError(error.toString());
     } finally {
@@ -1964,7 +2347,7 @@ class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
     );
   }
 
-  Future<void> _showSuccess(String message) async {
+  Future<void> _showSuccess({required String message, String? imageUrl}) async {
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1977,11 +2360,28 @@ class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
             Text('Success', style: TextStyle(color: Colors.white)),
           ],
         ),
-        content: Text(message, style: const TextStyle(color: Colors.white70)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (imageUrl != null) ...[
+              ClipOval(
+                child: Image.network(
+                  imageUrl,
+                  width: 80,
+                  height: 80,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            Text(message, style: const TextStyle(color: Colors.white70)),
+          ],
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('OK', style: TextStyle(color: Color(0xFF818CF8))),
+            child: const Text('Done', style: TextStyle(color: Color(0xFF818CF8))),
           ),
         ],
       ),
@@ -1994,6 +2394,7 @@ class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
     return _FormSheetScaffold(
       title: isEditing ? 'Edit Member' : 'Add Member',
       isSaving: _isSaving,
+      canSave: _hasChanges,
       onSave: _save,
       child: Form(
         key: _formKey,
@@ -2094,9 +2495,7 @@ class _PhotoPickerInput extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  isUploading
-                      ? 'Uploading to member_pictures...'
-                      : 'Choose from gallery',
+                  'Choose from gallery',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.48),
                     fontSize: 12,
@@ -2298,15 +2697,21 @@ Future<String> _uploadMemberPicture({
   required SupabaseClient supabase,
   required XFile image,
   required String folder,
+  required String personName,
 }) async {
   final bytes = await image.readAsBytes();
   final extension = _fileExtension(image.name);
   final safeFolder = folder.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-  final fileName =
-      '$safeFolder/${DateTime.now().microsecondsSinceEpoch}$extension';
+  final safeName = personName
+      .trim()
+      .replaceAll(RegExp(r'\s+'), '_')
+      .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+  final fileName = safeName.isEmpty
+      ? '$safeFolder/${DateTime.now().microsecondsSinceEpoch}$extension'
+      : '$safeFolder/$safeName$extension';
 
   await supabase.storage
-      .from('member_pictures')
+      .from('member-pictures')
       .uploadBinary(
         fileName,
         bytes,
@@ -2316,7 +2721,130 @@ Future<String> _uploadMemberPicture({
         ),
       );
 
-  return supabase.storage.from('member_pictures').getPublicUrl(fileName);
+  final publicUrl = supabase.storage.from('member-pictures').getPublicUrl(fileName);
+  return '$publicUrl?t=${DateTime.now().millisecondsSinceEpoch}';
+}
+
+Future<bool?> _showPhotoConfirmDialog({
+  required BuildContext context,
+  required String url,
+  required String name,
+}) {
+  return showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: const Color(0xFF111827),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.check_circle, color: Color(0xFF34D399), size: 48),
+          const SizedBox(height: 18),
+          Container(
+            width: 160,
+            height: 160,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: const Color(0xFF818CF8).withValues(alpha: 0.5),
+                width: 3,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF818CF8).withValues(alpha: 0.25),
+                  blurRadius: 20,
+                ),
+              ],
+            ),
+            child: ClipOval(
+              child: Image.network(
+                url,
+                width: 160,
+                height: 160,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: const Color(0xFF1F2937),
+                  child: const Icon(
+                    Icons.broken_image_rounded,
+                    color: Color(0xFF818CF8),
+                    size: 48,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            name.isEmpty ? 'Image Uploaded' : name,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            name.isEmpty
+                ? 'Photo uploaded successfully.'
+                : 'Profile picture ready.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.56),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        Row(
+          children: [
+            Expanded(
+              child: TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    side: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.12),
+                    ),
+                  ),
+                ),
+                child: Text(
+                  'Cancel',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.6),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF818CF8),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                child: const Text(
+                  'Use Photo',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
 }
 
 String _fileExtension(String fileName) {

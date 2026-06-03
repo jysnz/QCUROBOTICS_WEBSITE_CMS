@@ -4,6 +4,7 @@ import 'package:qcurobotics_management_app/Pages/Auth/login_page.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/register_page.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/welcome_page.dart';
 import 'package:qcurobotics_management_app/Pages/Dashboard/Dashboard.dart';
+import 'package:qcurobotics_management_app/Widgets/loading_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -110,7 +111,8 @@ class _AuthGateState extends State<AuthGate> {
       builder: (context, profileSnapshot) {
         if (profileSnapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+            backgroundColor: Color(0xFF0B1020),
+            body: DashboardSkeleton(),
           );
         }
 

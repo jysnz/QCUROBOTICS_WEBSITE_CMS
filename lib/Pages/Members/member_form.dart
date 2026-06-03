@@ -5,12 +5,14 @@ class _FormSheetScaffold extends StatelessWidget {
   final Widget child;
   final bool isSaving;
   final VoidCallback onSave;
+  final bool canSave;
 
   const _FormSheetScaffold({
     required this.title,
     required this.child,
     required this.isSaving,
     required this.onSave,
+    this.canSave = true,
   });
 
   @override
@@ -54,7 +56,12 @@ class _FormSheetScaffold extends StatelessWidget {
                     ),
                     const SizedBox(width: 4),
                     FilledButton(
-                      onPressed: isSaving ? null : onSave,
+                      onPressed: (isSaving || !canSave) ? null : onSave,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: canSave
+                            ? null
+                            : const Color(0xFF6366F1).withValues(alpha: 0.3),
+                      ),
                       child: isSaving
                           ? const SizedBox(
                               width: 18,

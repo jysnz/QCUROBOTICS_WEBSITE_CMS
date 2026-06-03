@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:qcurobotics_management_app/Pages/Members/Members.dart';
 import 'package:qcurobotics_management_app/Pages/Profile/profile_page.dart';
+import 'package:qcurobotics_management_app/Services/cache_service.dart';
+import 'package:qcurobotics_management_app/Widgets/loading_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class Dashboard extends StatefulWidget {
@@ -24,15 +26,35 @@ class _DashboardOverviewData {
     required this.totalSponsors,
     required this.totalTeams,
   });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'totalMembers': totalMembers,
+      'totalTournaments': totalTournaments,
+      'totalAchievements': totalAchievements,
+      'totalSponsors': totalSponsors,
+      'totalTeams': totalTeams,
+    };
+  }
+
+  factory _DashboardOverviewData.fromMap(Map<String, dynamic> map) {
+    return _DashboardOverviewData(
+      totalMembers: map['totalMembers'] ?? 0,
+      totalTournaments: map['totalTournaments'] ?? 0,
+      totalAchievements: map['totalAchievements'] ?? 0,
+      totalSponsors: map['totalSponsors'] ?? 0,
+      totalTeams: map['totalTeams'] ?? 0,
+    );
+  }
 }
 
 class _DashboardState extends State<Dashboard> {
-  static const Duration _overviewCacheDuration = Duration(minutes: 5);
-  static _DashboardOverviewData? _cachedOverview;
-  static DateTime? _cachedOverviewAt;
-
+  static const Duration _overviewCacheDuration = Duration(minutes: 30);
+  static const String _overviewCacheKey = 'dashboard_overview_data';
+  
   int _selectedIndex = 0;
   final _supabase = Supabase.instance.client;
+  final _cache = CacheService();
 
   int _totalMembers = 0;
   int _totalTournaments = 0;
@@ -45,12 +67,6 @@ class _DashboardState extends State<Dashboard> {
   void initState() {
     super.initState();
     _loadOverviewData();
-  }
-
-  bool get _hasFreshOverviewCache {
-    final cachedAt = _cachedOverviewAt;
-    if (_cachedOverview == null || cachedAt == null) return false;
-    return DateTime.now().difference(cachedAt) < _overviewCacheDuration;
   }
 
   void _applyOverviewData(
@@ -68,75 +84,58 @@ class _DashboardState extends State<Dashboard> {
   Future<void> _loadOverviewData({bool forceRefresh = false}) async {
     if (!mounted) return;
 
-    final cachedData = _cachedOverview;
-    if (!forceRefresh && _hasFreshOverviewCache && cachedData != null) {
-      setState(() => _applyOverviewData(cachedData, loading: false));
-      debugPrint('Using cached dashboard overview data.');
-      return;
+    // 1. Try to load from persistent cache first
+    final cachedMap = await _cache.getData(_overviewCacheKey);
+    if (cachedMap != null) {
+      final cachedData = _DashboardOverviewData.fromMap(cachedMap);
+      if (mounted) {
+        setState(() => _applyOverviewData(cachedData, loading: false));
+      }
+      
+      // If the cache is still fresh, we're done
+      final freshCachedMap = await _cache.getData(_overviewCacheKey, maxAge: _overviewCacheDuration);
+      if (!forceRefresh && freshCachedMap != null) {
+        debugPrint('Using fresh persistent dashboard cache.');
+        return;
+      }
     }
 
+    // 2. Fetch from network if cache is missing, stale, or force refresh
     await _fetchOverviewData();
   }
 
   Future<void> _fetchOverviewData() async {
     if (!mounted) return;
-    setState(() {
-      final cachedData = _cachedOverview;
-      if (cachedData != null) {
-        _applyOverviewData(cachedData, loading: false);
-      } else {
-        _isLoading = true;
-      }
-    });
+    
     debugPrint('🔄 Starting fetch...');
     try {
-      debugPrint('📡 Fetching team_members...');
-      final teamMembersRes = await _supabase.from('team_members').count();
-      debugPrint('✅ team_members count: $teamMembersRes');
-
-      debugPrint('📡 Fetching media_team...');
-      final mediaTeamRes = await _supabase.from('media_team').count();
-      debugPrint('✅ media_team count: $mediaTeamRes');
-
-      debugPrint('📡 Fetching members...');
-      final membersRes = await _supabase.from('members').count();
-      debugPrint('✅ members count: $membersRes');
-
-      debugPrint('📡 Fetching competitions...');
-      final tournamentsRes = await _supabase.from('competitions').count();
-      debugPrint('✅ competitions count: $tournamentsRes');
-
-      debugPrint('📡 Fetching Achievements...');
-      final achievementsRes = await _supabase.from('Achievements').count();
-      debugPrint('✅ Achievements count: $achievementsRes');
-
-      debugPrint('📡 Fetching sponsors...');
-      final sponsorsRes = await _supabase.from('sponsors').count();
-      debugPrint('✅ sponsors count: $sponsorsRes');
-
-      debugPrint('📡 Fetching active teams...');
-      final activeTeamsRes = await _supabase
-          .from('teams')
-          .count()
-          .eq('is_active', true);
-      debugPrint('✅ active teams count: $activeTeamsRes');
+      final results = await Future.wait([
+        _supabase.from('team_members').count(),
+        _supabase.from('media_team').count(),
+        _supabase.from('members').count(),
+        _supabase.from('competitions').count(),
+        _supabase.from('Achievements').count(),
+        _supabase.from('sponsors').count(),
+        _supabase.from('teams').count().eq('is_active', true),
+      ]);
 
       if (mounted) {
         final overviewData = _DashboardOverviewData(
-          totalMembers: teamMembersRes + mediaTeamRes + membersRes,
-          totalTournaments: tournamentsRes,
-          totalAchievements: achievementsRes,
-          totalSponsors: sponsorsRes,
-          totalTeams: activeTeamsRes,
+          totalMembers: results[0] + results[1] + results[2],
+          totalTournaments: results[3],
+          totalAchievements: results[4],
+          totalSponsors: results[5],
+          totalTeams: results[6],
         );
-        _cachedOverview = overviewData;
-        _cachedOverviewAt = DateTime.now();
+
+        // Save to persistent cache
+        await _cache.saveData(_overviewCacheKey, overviewData.toMap());
 
         setState(() {
           _applyOverviewData(overviewData, loading: false);
         });
         debugPrint(
-          '✅ State updated — Members: $_totalMembers, Tournaments: $_totalTournaments, Achievements: $_totalAchievements, Sponsors: $_totalSponsors, Teams: $_totalTeams',
+          '✅ Dashboard fetch complete and cached.',
         );
       }
     } catch (e, stackTrace) {
@@ -580,14 +579,7 @@ class _StatCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (isLoading)
-                  Container(
-                    height: 22,
-                    width: 50,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  )
+                  const Skeleton(height: 22, width: 50)
                 else
                   Text(
                     value,
