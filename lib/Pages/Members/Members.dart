@@ -93,6 +93,7 @@ class _MembersState extends State<Members> {
       _supabase
           .from('media_team')
           .select('id, name, position, image_url, is_active'),
+      _supabase.from('Coaches').select('id, name, image_url, is_active'),
       _supabase
           .from('teams')
           .select('id, team_name, team_number, team_code, is_active, season_id')
@@ -101,23 +102,32 @@ class _MembersState extends State<Members> {
       _supabase.from('roles').select('id, role_name').order('role_name'),
     ]);
     debugPrint('[_fetchAndCacheMembers] fetched ${results.length} result sets');
+    debugPrint('[_fetchAndCacheMembers] results[4] (coaches) raw: ${results[4]}');
+    debugPrint('[_fetchAndCacheMembers] results[4] type: ${results[4].runtimeType}');
 
     final assignments = _asMapList(results[0]);
     debugPrint('[_fetchAndCacheMembers] assignments count: ${assignments.length}');
     final roleRows = _asMapList(results[1]);
     final members = _asMapList(results[2]);
+    debugPrint('[_fetchAndCacheMembers] members count: ${members.length}');
     final mediaTeam = _asMapList(results[3])
       ..sort(
         (a, b) => _stringValue(a['name']).compareTo(_stringValue(b['name'])),
       );
+    debugPrint('[_fetchAndCacheMembers] mediaTeam count: ${mediaTeam.length}');
+    final coaches = _asMapList(results[4])
+      ..sort(
+        (a, b) => _stringValue(a['name']).compareTo(_stringValue(b['name'])),
+      );
+    debugPrint('[_fetchAndCacheMembers] coaches count: ${coaches.length}');
     final teams = _asMapList(
-      results[4],
+      results[5],
     ).map(_TeamOption.fromRow).where((team) => team.id != null).toList();
     final seasons = _asMapList(
-      results[5],
+      results[6],
     ).map(_SeasonOption.fromRow).where((season) => season.id != null).toList();
     final roles = _asMapList(
-      results[6],
+      results[7],
     ).map(_RoleOption.fromRow).where((role) => role.id != null).toList();
 
     final rolesByMemberSeason = <String, List<String>>{};
@@ -200,10 +210,12 @@ class _MembersState extends State<Members> {
       seasons: seasonGroups,
       members: members,
       mediaTeam: mediaTeam,
+      coaches: coaches,
       teams: teams,
       seasonOptions: seasons,
       roles: roles,
     );
+    debugPrint('[_fetchAndCacheMembers] _MembersPageData coaches count: ${data.coaches.length}');
 
     // Save to persistent cache
     await _cache.saveData(_membersCacheKey, data.toMap());
@@ -265,6 +277,16 @@ class _MembersState extends State<Members> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => _MediaMemberFormSheet(row: row),
+    );
+    if (saved == true) await _reload();
+  }
+
+  Future<void> _openCoachForm({Map<String, dynamic>? row}) async {
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _CoachFormSheet(row: row),
     );
     if (saved == true) await _reload();
   }
@@ -413,6 +435,34 @@ class _MembersState extends State<Members> {
                               );
                             },
                           ),
+                        SliverToBoxAdapter(
+                          child: Builder(builder: (context) {
+                            debugPrint('[_build] coaches count: ${data.coaches.length}');
+                            return _SectionHeader(
+                              label: 'Coaches',
+                              count: data.coaches.length,
+                              color: const Color(0xFFF59E0B),
+                              topPadding: 28,
+                              onAdd: _openCoachForm,
+                            );
+                          }),
+                        ),
+                        if (data.coaches.isEmpty)
+                          const SliverToBoxAdapter(
+                            child: _EmptyState(text: 'No coaches found.'),
+                          )
+                        else
+                          SliverList.builder(
+                            itemCount: data.coaches.length,
+                            itemBuilder: (context, index) {
+                              return _CoachCard(
+                                row: data.coaches[index],
+                                onEdit: () => _openCoachForm(
+                                  row: data.coaches[index],
+                                ),
+                              );
+                            },
+                          ),
                         const SliverToBoxAdapter(child: SizedBox(height: 36)),
                       ],
                     ],
@@ -444,6 +494,7 @@ class _MembersPageData {
   final List<_SeasonGroup> seasons;
   final List<Map<String, dynamic>> members;
   final List<Map<String, dynamic>> mediaTeam;
+  final List<Map<String, dynamic>> coaches;
   final List<_TeamOption> teams;
   final List<_SeasonOption> seasonOptions;
   final List<_RoleOption> roles;
@@ -452,6 +503,7 @@ class _MembersPageData {
     required this.seasons,
     required this.members,
     required this.mediaTeam,
+    required this.coaches,
     required this.teams,
     required this.seasonOptions,
     required this.roles,
@@ -462,6 +514,7 @@ class _MembersPageData {
       'seasons': seasons.map((s) => s.toMap()).toList(),
       'members': members,
       'mediaTeam': mediaTeam,
+      'coaches': coaches,
       'teams': teams.map((t) => t.toMap()).toList(),
       'seasonOptions': seasonOptions.map((s) => s.toMap()).toList(),
       'roles': roles.map((r) => r.toMap()).toList(),
@@ -473,6 +526,7 @@ class _MembersPageData {
       seasons: (map['seasons'] as List).map((s) => _SeasonGroup.fromMap(s)).toList(),
       members: List<Map<String, dynamic>>.from(map['members']),
       mediaTeam: List<Map<String, dynamic>>.from(map['mediaTeam']),
+      coaches: List<Map<String, dynamic>>.from(map['coaches'] ?? []),
       teams: (map['teams'] as List).map((t) => _TeamOption.fromMap(t)).toList(),
       seasonOptions: (map['seasonOptions'] as List).map((s) => _SeasonOption.fromMap(s)).toList(),
       roles: (map['roles'] as List).map((r) => _RoleOption.fromMap(r)).toList(),
@@ -1336,6 +1390,59 @@ class _MediaMemberCard extends StatelessWidget {
             _SmallIconButton(
               icon: Icons.edit_rounded,
               color: const Color(0xFFEC4899),
+              onTap: onEdit,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CoachCard extends StatelessWidget {
+  final Map<String, dynamic> row;
+  final VoidCallback onEdit;
+
+  const _CoachCard({required this.row, required this.onEdit});
+
+  @override
+  Widget build(BuildContext context) {
+    final name = _stringValue(row['name']);
+    final isActive = row['is_active'] == true;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+      child: _GlassCard(
+        padding: const EdgeInsets.all(13),
+        child: Row(
+          children: [
+            _Avatar(
+              imageUrl: _nullableString(row['image_url']),
+              name: name,
+              size: 44,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name.isEmpty ? 'Unnamed Coach' : name,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isActive)
+              const _StatusPill(label: 'Active', color: Color(0xFFF59E0B)),
+            const SizedBox(width: 8),
+            _SmallIconButton(
+              icon: Icons.edit_rounded,
+              color: const Color(0xFFF59E0B),
               onTap: onEdit,
             ),
           ],
@@ -2428,6 +2535,225 @@ class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
                 onChanged: (value) => setState(() => _isActive = value),
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CoachFormSheet extends StatefulWidget {
+  final Map<String, dynamic>? row;
+
+  const _CoachFormSheet({required this.row});
+
+  @override
+  State<_CoachFormSheet> createState() => _CoachFormSheetState();
+}
+
+class _CoachFormSheetState extends State<_CoachFormSheet> {
+  final _supabase = Supabase.instance.client;
+  final _imagePicker = ImagePicker();
+  final _nameController = TextEditingController();
+  final _imageController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  late bool _isActive;
+  bool _isSaving = false;
+  bool _isUploadingPicture = false;
+
+  String? _initialName;
+  String? _initialImageUrl;
+  bool _initialIsActive = true;
+
+  bool get _hasChanges {
+    if (widget.row == null) return true;
+    return _nameController.text.trim() != _initialName
+        || _imageController.text != _initialImageUrl
+        || _isActive != _initialIsActive;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final row = widget.row;
+    _nameController.text = _stringValue(row?['name']);
+    _imageController.text = _stringValue(row?['image_url']);
+    _isActive = row?['is_active'] == true || row == null;
+    _initialName = _stringValue(row?['name']);
+    _initialImageUrl = _stringValue(row?['image_url']);
+    _initialIsActive = row?['is_active'] == true || row == null;
+    if (widget.row != null) {
+      _nameController.addListener(_onFieldChanged);
+      _imageController.addListener(_onFieldChanged);
+    }
+  }
+
+  void _onFieldChanged() {
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _nameController.removeListener(_onFieldChanged);
+    _imageController.removeListener(_onFieldChanged);
+    _nameController.dispose();
+    _imageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSaving = true);
+    final isEditing = widget.row != null;
+    try {
+      final payload = {
+        'name': _nameController.text.trim(),
+        'image_url': _nullableString(_imageController.text),
+        'is_active': _isActive,
+      };
+      final id = _intValue(widget.row?['id']);
+      if (id == null) {
+        await _supabase.from('Coaches').insert(payload);
+      } else {
+        await _supabase.from('Coaches').update(payload).eq('id', id);
+      }
+      if (mounted) {
+        await _showSuccess(
+          message: isEditing ? 'Coach updated successfully.' : 'Coach added successfully.',
+          imageUrl: _nullableString(_imageController.text),
+        );
+        if (mounted) Navigator.of(context).pop(true);
+      }
+    } catch (error) {
+      _showError(error.toString());
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _pickProfilePicture() async {
+    final image = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 88,
+    );
+    if (image == null) return;
+
+    setState(() => _isUploadingPicture = true);
+    try {
+      final name = _nameController.text.trim();
+      final url = await _uploadMemberPicture(
+        supabase: _supabase,
+        image: image,
+        folder: 'coaches',
+        personName: name.isEmpty ? DateTime.now().microsecondsSinceEpoch.toString() : name,
+      );
+
+      if (mounted) {
+        final confirmed = await _showPhotoConfirmDialog(
+          context: context,
+          url: url,
+          name: name.isEmpty ? 'Coach' : name,
+        );
+        if (confirmed == true) {
+          _imageController.text = url;
+          if (widget.row != null) {
+            final id = _intValue(widget.row!['id']);
+            if (id != null) {
+              await _supabase
+                  .from('Coaches')
+                  .update({'image_url': url})
+                  .eq('id', id);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      _showError(error.toString());
+    } finally {
+      if (mounted) setState(() => _isUploadingPicture = false);
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: const Color(0xFFB91C1C),
+      ),
+    );
+  }
+
+  Future<void> _showSuccess({required String message, String? imageUrl}) async {
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF111827),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle, color: Color(0xFF34D399), size: 26),
+            SizedBox(width: 10),
+            Text('Success', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (imageUrl != null) ...[
+              ClipOval(
+                child: Image.network(
+                  imageUrl,
+                  width: 80,
+                  height: 80,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            Text(message, style: const TextStyle(color: Colors.white70)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Done', style: TextStyle(color: Color(0xFF818CF8))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.row != null;
+    return _FormSheetScaffold(
+      title: isEditing ? 'Edit Coach' : 'Add Coach',
+      isSaving: _isSaving,
+      canSave: _hasChanges,
+      onSave: _save,
+      child: Form(
+        key: _formKey,
+        child: Column(
+          children: [
+            _TextFieldInput(
+              controller: _nameController,
+              label: 'Name',
+              validator: _requiredValidator,
+            ),
+            const SizedBox(height: 12),
+            _PhotoPickerInput(
+              imageUrl: _nullableString(_imageController.text),
+              isUploading: _isUploadingPicture,
+              onPick: _pickProfilePicture,
+            ),
+            const SizedBox(height: 10),
+            _SwitchInput(
+              label: 'Active',
+              value: _isActive,
+              onChanged: (value) => setState(() => _isActive = value),
+            ),
           ],
         ),
       ),
