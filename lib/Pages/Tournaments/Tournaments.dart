@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:qcurobotics_management_app/Pages/Matches/Matches.dart';
 import 'package:qcurobotics_management_app/Services/cache_service.dart';
 import 'package:qcurobotics_management_app/Widgets/loading_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -234,6 +235,55 @@ class _TournamentsState extends State<Tournaments> {
         competitions: comps,
         onEditComp: (comp) => _openCompForm(row: comp.toMap(), seasons: data.seasons),
         onAddComp: () => _openCompForm(seasons: data.seasons, presetSeasonId: season.id == 0 ? null : season.id),
+      ),
+    );
+  }
+}
+
+class _MatchesButton extends StatelessWidget {
+  final int competitionId;
+  final String competitionTitle;
+
+  const _MatchesButton({
+    required this.competitionId,
+    required this.competitionTitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => MatchListSheet(
+          competitionId: competitionId,
+          competitionTitle: competitionTitle,
+        ),
+      ),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFBBF24).withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFFBBF24).withValues(alpha: 0.18)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.sports_esports_rounded, size: 16, color: const Color(0xFFFBBF24).withValues(alpha: 0.7)),
+            const SizedBox(width: 6),
+            Text(
+              'View Matches',
+              style: TextStyle(
+                color: const Color(0xFFFBBF24).withValues(alpha: 0.8),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -804,6 +854,14 @@ class _CompCard extends StatelessWidget {
               ],
             ),
           ],
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: _MatchesButton(
+              competitionId: competition.id,
+              competitionTitle: competition.title,
+            ),
+          ),
         ],
       ),
     );
