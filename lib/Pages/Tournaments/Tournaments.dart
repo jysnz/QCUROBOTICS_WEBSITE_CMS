@@ -601,7 +601,7 @@ class _SeasonDropdown extends StatelessWidget {
   }
 }
 
-class _SeasonCard extends StatelessWidget {
+class _SeasonCard extends StatefulWidget {
   final _SeasonInfo season;
   final List<_CompetitionInfo> competitions;
   final void Function(_CompetitionInfo comp)? onEditComp;
@@ -613,6 +613,13 @@ class _SeasonCard extends StatelessWidget {
     this.onEditComp,
     this.onAddComp,
   });
+
+  @override
+  State<_SeasonCard> createState() => _SeasonCardState();
+}
+
+class _SeasonCardState extends State<_SeasonCard> {
+  bool _showEditActions = false;
 
   @override
   Widget build(BuildContext context) {
@@ -632,7 +639,7 @@ class _SeasonCard extends StatelessWidget {
                 const SizedBox(width: 9),
                 Expanded(
                   child: Text(
-                    season.name,
+                    widget.season.name,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 17,
@@ -642,21 +649,31 @@ class _SeasonCard extends StatelessWidget {
                   ),
                 ),
                 _CountPill(
-                  count: competitions.length,
+                  count: widget.competitions.length,
                   color: const Color(0xFFFBBF24),
                 ),
-                if (onAddComp != null) ...[
+                if (widget.onEditComp != null) ...[
+                  const SizedBox(width: 8),
+                  _SmallIconButton(
+                    icon: _showEditActions ? Icons.check_rounded : Icons.edit_rounded,
+                    color: _showEditActions
+                        ? const Color(0xFFD97706)
+                        : const Color(0xFFFBBF24),
+                    onTap: () => setState(() => _showEditActions = !_showEditActions),
+                  ),
+                ],
+                if (widget.onAddComp != null) ...[
                   const SizedBox(width: 8),
                   _SmallIconButton(
                     icon: Icons.add_rounded,
                     color: const Color(0xFFF59E0B),
-                    onTap: onAddComp!,
+                    onTap: widget.onAddComp!,
                   ),
                 ],
               ],
             ),
             const SizedBox(height: 14),
-            if (competitions.isEmpty)
+            if (widget.competitions.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 child: Row(
@@ -679,12 +696,13 @@ class _SeasonCard extends StatelessWidget {
                 ),
               )
             else
-              for (final comp in competitions) ...[
+              for (final comp in widget.competitions) ...[
                 _CompCard(
                   competition: comp,
-                  onEdit: onEditComp != null ? () => onEditComp!(comp) : null,
+                  showEditAction: _showEditActions,
+                  onEdit: widget.onEditComp != null ? () => widget.onEditComp!(comp) : null,
                 ),
-                if (comp != competitions.last) const SizedBox(height: 10),
+                if (comp != widget.competitions.last) const SizedBox(height: 10),
               ],
           ],
         ),
@@ -695,9 +713,10 @@ class _SeasonCard extends StatelessWidget {
 
 class _CompCard extends StatelessWidget {
   final _CompetitionInfo competition;
+  final bool showEditAction;
   final VoidCallback? onEdit;
 
-  const _CompCard({required this.competition, this.onEdit});
+  const _CompCard({required this.competition, this.showEditAction = false, this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -758,7 +777,7 @@ class _CompCard extends StatelessWidget {
                   ],
                 ),
               ),
-              if (onEdit != null)
+              if (showEditAction && onEdit != null)
                 _SmallIconButton(
                   icon: Icons.edit_rounded,
                   color: const Color(0xFFFBBF24),

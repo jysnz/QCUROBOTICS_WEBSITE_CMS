@@ -605,7 +605,7 @@ class _SeasonDropdown extends StatelessWidget {
   }
 }
 
-class _SeasonCard extends StatelessWidget {
+class _SeasonCard extends StatefulWidget {
   final _SeasonInfo season;
   final List<_TeamInfo> teams;
   final void Function(_TeamInfo team)? onEditTeam;
@@ -617,6 +617,13 @@ class _SeasonCard extends StatelessWidget {
     this.onEditTeam,
     this.onAddTeam,
   });
+
+  @override
+  State<_SeasonCard> createState() => _SeasonCardState();
+}
+
+class _SeasonCardState extends State<_SeasonCard> {
+  bool _showEditActions = false;
 
   @override
   Widget build(BuildContext context) {
@@ -636,7 +643,7 @@ class _SeasonCard extends StatelessWidget {
                 const SizedBox(width: 9),
                 Expanded(
                   child: Text(
-                    season.name,
+                    widget.season.name,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 17,
@@ -646,21 +653,31 @@ class _SeasonCard extends StatelessWidget {
                   ),
                 ),
                 _CountPill(
-                  count: teams.length,
+                  count: widget.teams.length,
                   color: const Color(0xFF34D399),
                 ),
-                if (onAddTeam != null) ...[
+                if (widget.onEditTeam != null) ...[
+                  const SizedBox(width: 8),
+                  _SmallIconButton(
+                    icon: _showEditActions ? Icons.check_rounded : Icons.edit_rounded,
+                    color: _showEditActions
+                        ? const Color(0xFF059669)
+                        : const Color(0xFF34D399),
+                    onTap: () => setState(() => _showEditActions = !_showEditActions),
+                  ),
+                ],
+                if (widget.onAddTeam != null) ...[
                   const SizedBox(width: 8),
                   _SmallIconButton(
                     icon: Icons.add_rounded,
                     color: const Color(0xFF10B981),
-                    onTap: onAddTeam!,
+                    onTap: widget.onAddTeam!,
                   ),
                 ],
               ],
             ),
             const SizedBox(height: 14),
-            if (teams.isEmpty)
+            if (widget.teams.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 child: Row(
@@ -683,12 +700,13 @@ class _SeasonCard extends StatelessWidget {
                 ),
               )
             else
-              for (final team in teams) ...[
+              for (final team in widget.teams) ...[
                 _TeamCard(
                   team: team,
-                  onEdit: onEditTeam != null ? () => onEditTeam!(team) : null,
+                  showEditAction: _showEditActions,
+                  onEdit: widget.onEditTeam != null ? () => widget.onEditTeam!(team) : null,
                 ),
-                if (team != teams.last) const SizedBox(height: 10),
+                if (team != widget.teams.last) const SizedBox(height: 10),
               ],
           ],
         ),
@@ -699,9 +717,10 @@ class _SeasonCard extends StatelessWidget {
 
 class _TeamCard extends StatelessWidget {
   final _TeamInfo team;
+  final bool showEditAction;
   final VoidCallback? onEdit;
 
-  const _TeamCard({required this.team, this.onEdit});
+  const _TeamCard({required this.team, this.showEditAction = false, this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -761,7 +780,7 @@ class _TeamCard extends StatelessWidget {
           ),
           if (team.isActive)
             const _StatusPill(label: 'Active', color: Color(0xFF10B981)),
-          if (onEdit != null) ...[
+          if (showEditAction && onEdit != null) ...[
             const SizedBox(width: 8),
             _SmallIconButton(
               icon: Icons.edit_rounded,
