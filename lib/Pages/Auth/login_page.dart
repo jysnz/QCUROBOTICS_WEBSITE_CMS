@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:qcurobotics_management_app/Pages/Auth/register_page.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/auth_widgets.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  final VoidCallback? onRegister;
+
+  const LoginPage({super.key, this.onRegister});
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -209,11 +210,7 @@ class _LoginPageState extends State<LoginPage> {
                           style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
                         ),
                         TextButton(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const RegisterPage()),
-                            );
-                          },
+                          onPressed: widget.onRegister,
                           style: TextButton.styleFrom(
                             foregroundColor: const Color(0xFF6366F1),
                             textStyle: const TextStyle(fontWeight: FontWeight.w700),

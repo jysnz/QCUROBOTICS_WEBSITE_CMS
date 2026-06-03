@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/auth_widgets.dart';
-import '../Dashboard/Dashboard.dart';
 
 class WelcomePage extends StatelessWidget {
-  const WelcomePage({super.key});
+  final VoidCallback? onGoToDashboard;
+
+  const WelcomePage({super.key, this.onGoToDashboard});
 
   @override
   Widget build(BuildContext context) {
@@ -52,12 +53,7 @@ class WelcomePage extends StatelessWidget {
                     const SizedBox(height: 48),
                     AuthButton(
                       label: 'Go to Dashboard',
-                      onPressed: () {
-                        Navigator.of(context).pushAndRemoveUntil(
-                          MaterialPageRoute(builder: (_) => const Dashboard()),
-                          (route) => false,
-                        );
-                      },
+                      onPressed: onGoToDashboard ?? () {},
                     ),
                   ],
                 ),

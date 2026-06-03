@@ -4,7 +4,6 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/auth_widgets.dart';
-import 'welcome_page.dart';
 
 class RegisterPage extends StatefulWidget {
   final String? initialEmail;
@@ -12,6 +11,7 @@ class RegisterPage extends StatefulWidget {
   final String? initialImageUrl;
   final bool isGoogleSignUp;
   final VoidCallback? onProfileComplete;
+  final VoidCallback? onRegistrationSuccess;
 
   const RegisterPage({
     super.key,
@@ -20,6 +20,7 @@ class RegisterPage extends StatefulWidget {
     this.initialImageUrl,
     this.isGoogleSignUp = false,
     this.onProfileComplete,
+    this.onRegistrationSuccess,
   });
 
   @override
@@ -183,12 +184,6 @@ class _RegisterPageState extends State<RegisterPage> {
         );
       },
     );
-
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const WelcomePage()),
-      (route) => false,
-    );
   }
 
   Future<void> _showErrorDialog(String message) async {
@@ -314,6 +309,12 @@ class _RegisterPageState extends State<RegisterPage> {
         debugPrint('🎉 Registration/Profile Save Finished Successfully');
         setState(() => _isRegistering = false);
         await _showSuccessDialog();
+        if (!mounted) return;
+        if (widget.isGoogleSignUp) {
+          widget.onProfileComplete?.call();
+        } else {
+          widget.onRegistrationSuccess?.call();
+        }
       }
     } on AuthException catch (e) {
       debugPrint('❌ AuthException: ${e.message} (Status: ${e.statusCode})');
