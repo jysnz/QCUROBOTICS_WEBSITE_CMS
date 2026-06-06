@@ -58,9 +58,6 @@ class _AuthGateState extends State<AuthGate> {
   void initState() {
     super.initState();
     Supabase.instance.client.auth.onAuthStateChange.listen((data) {
-      if (data.event == AuthChangeEvent.signedIn) {
-        _showWelcome = true;
-      }
       if (mounted) setState(() {});
     });
   }
