@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
+import 'package:chewie/chewie.dart';
 
 const _kResolutions = ['Original', '1080p', '720p', '480p', '360p'];
 
@@ -181,6 +182,17 @@ class _MatchCard extends StatefulWidget {
 
 class _MatchCardState extends State<_MatchCard> {
   String _selectedResolution = 'Original';
+  VideoPlayerController? _videoPlayerController;
+  ChewieController? _chewieController;
+  bool _isPlaying = false;
+  bool _isInitializing = false;
+
+  @override
+  void dispose() {
+    _videoPlayerController?.dispose();
+    _chewieController?.dispose();
+    super.dispose();
+  }
 
   Color _resultColor(String result) {
     switch (result.toLowerCase()) {
@@ -195,46 +207,66 @@ class _MatchCardState extends State<_MatchCard> {
 
   Future<void> _playVideo() async {
     final url = widget.match.videoUrl;
-    debugPrint('[_playVideo] Attempting to play video from URL: $url');
+    debugPrint('[_playVideo] Attempting to play video in-app from URL: $url');
 
     if (url == null || url.isEmpty) {
       debugPrint('[_playVideo] Error: Video URL is null or empty');
       return;
     }
 
-    final uri = Uri.tryParse(url);
-    if (uri == null) {
-      debugPrint('[_playVideo] Error: Could not parse URL into URI: $url');
-      return;
-    }
+    setState(() {
+      _isPlaying = true;
+      _isInitializing = true;
+    });
 
     try {
-      final canLaunch = await canLaunchUrl(uri);
-      debugPrint('[_playVideo] canLaunchUrl result: $canLaunch');
+      _videoPlayerController = VideoPlayerController.networkUrl(Uri.parse(url));
+      await _videoPlayerController!.initialize();
+      
+      _chewieController = ChewieController(
+        videoPlayerController: _videoPlayerController!,
+        autoPlay: true,
+        looping: false,
+        aspectRatio: 16 / 9,
+        materialProgressColors: ChewieProgressColors(
+          playedColor: const Color(0xFFFBBF24),
+          handleColor: const Color(0xFFFBBF24),
+          backgroundColor: Colors.white.withValues(alpha: 0.2),
+          bufferedColor: Colors.white.withValues(alpha: 0.4),
+        ),
+        placeholder: _thumbnailPlaceholder(),
+        errorBuilder: (context, errorMessage) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline_rounded, color: Colors.white60, size: 32),
+                const SizedBox(height: 8),
+                Text(
+                  'The video cannot be played: $errorMessage',
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
+        },
+      );
 
-      if (canLaunch) {
-        debugPrint('[_playVideo] Launching URL in external application...');
-        final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-        debugPrint('[_playVideo] launchUrl result: $launched');
-        
-        if (!launched && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('The video cannot be played (External launcher failed)')),
-          );
-        }
-      } else {
-        debugPrint('[_playVideo] Error: cannot launch URI: $uri');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('The video cannot be played (No compatible app found)')),
-          );
-        }
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+        });
       }
     } catch (e) {
-      debugPrint('[_playVideo] Exception occurred during launch: $e');
+      debugPrint('[_playVideo] Exception occurred during initialization: $e');
       if (mounted) {
+        setState(() {
+          _isPlaying = false;
+          _isInitializing = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error playing video: $e')),
+          SnackBar(content: Text('The video cannot be played: $e')),
         );
       }
     }
@@ -260,43 +292,48 @@ class _MatchCardState extends State<_MatchCard> {
             children: [
               AspectRatio(
                 aspectRatio: 16 / 9,
-                child: match.thumbnail != null && match.thumbnail!.isNotEmpty
-                    ? Image.network(
-                        match.thumbnail!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _thumbnailPlaceholder(),
-                        loadingBuilder: (_, child, progress) {
-                          if (progress == null) return child;
-                          return _thumbnailPlaceholder();
-                        },
-                      )
-                    : _thumbnailPlaceholder(),
+                child: _isPlaying
+                    ? (_isInitializing
+                        ? const Center(child: CircularProgressIndicator(color: Color(0xFFFBBF24)))
+                        : Chewie(controller: _chewieController!))
+                    : (match.thumbnail != null && match.thumbnail!.isNotEmpty
+                        ? Image.network(
+                            match.thumbnail!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => _thumbnailPlaceholder(),
+                            loadingBuilder: (_, child, progress) {
+                              if (progress == null) return child;
+                              return _thumbnailPlaceholder();
+                            },
+                          )
+                        : _thumbnailPlaceholder()),
               ),
-              if (hasVideo)
+              if (hasVideo && !_isPlaying)
                 Positioned.fill(
                   child: Center(
                     child: _PlayButton(onTap: _playVideo),
                   ),
                 ),
-              Positioned(
-                top: 12,
-                left: 12,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    match.name.isEmpty ? 'Match ${match.sequence ?? ""}' : match.name,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
+              if (!_isPlaying || _isInitializing)
+                Positioned(
+                  top: 12,
+                  left: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      match.name.isEmpty ? 'Match ${match.sequence ?? ""}' : match.name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
                 ),
-              ),
             ],
           ),
 
