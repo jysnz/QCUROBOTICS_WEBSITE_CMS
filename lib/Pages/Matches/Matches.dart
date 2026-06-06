@@ -30,6 +30,8 @@ class _MatchListSheetState extends State<MatchListSheet> {
   }
 
   Future<void> _fetchMatches() async {
+    debugPrint('[_fetchMatches] Fetching matches for competitionId: ${widget.competitionId}');
+    setState(() => _isLoading = true);
     try {
       final rows = await _supabase
           .from('matches')
@@ -48,6 +50,11 @@ class _MatchListSheetState extends State<MatchListSheet> {
           .eq('competition_id', widget.competitionId)
           .order('sequence', ascending: true);
 
+      debugPrint('[_fetchMatches] Successfully fetched ${rows.length} matches');
+      if (rows.isNotEmpty) {
+        debugPrint('[_fetchMatches] First match data: ${rows.first}');
+      }
+
       final matches = (rows as List).map((r) => _MatchInfo(
         id: r['id'],
         name: r['name'] ?? '',
@@ -63,7 +70,7 @@ class _MatchListSheetState extends State<MatchListSheet> {
 
       if (mounted) setState(() => _matches = matches);
     } catch (e) {
-      debugPrint('[_fetchMatches] error: $e');
+      debugPrint('[_fetchMatches] Error fetching matches: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -188,11 +195,48 @@ class _MatchCardState extends State<_MatchCard> {
 
   Future<void> _playVideo() async {
     final url = widget.match.videoUrl;
-    if (url == null || url.isEmpty) return;
+    debugPrint('[_playVideo] Attempting to play video from URL: $url');
+
+    if (url == null || url.isEmpty) {
+      debugPrint('[_playVideo] Error: Video URL is null or empty');
+      return;
+    }
+
     final uri = Uri.tryParse(url);
-    if (uri == null) return;
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (uri == null) {
+      debugPrint('[_playVideo] Error: Could not parse URL into URI: $url');
+      return;
+    }
+
+    try {
+      final canLaunch = await canLaunchUrl(uri);
+      debugPrint('[_playVideo] canLaunchUrl result: $canLaunch');
+
+      if (canLaunch) {
+        debugPrint('[_playVideo] Launching URL in external application...');
+        final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+        debugPrint('[_playVideo] launchUrl result: $launched');
+        
+        if (!launched && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('The video cannot be played (External launcher failed)')),
+          );
+        }
+      } else {
+        debugPrint('[_playVideo] Error: cannot launch URI: $uri');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('The video cannot be played (No compatible app found)')),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[_playVideo] Exception occurred during launch: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error playing video: $e')),
+        );
+      }
     }
   }
 
