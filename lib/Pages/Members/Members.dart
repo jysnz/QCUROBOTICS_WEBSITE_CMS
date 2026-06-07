@@ -161,8 +161,20 @@ class _MembersState extends State<Members> {
     await future;
   }
 
-  Future<void> _openTeamPlayerForm({required _MembersPageData data, _TeamPlayer? player}) async {
-    final saved = await showModalBottomSheet<bool>(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => _TeamPlayerFormSheet(player: player, teams: data.teams, seasons: data.seasonOptions, roles: data.roles));
+  Future<void> _openTeamPlayerForm({required _MembersPageData data, _TeamPlayer? player, int? presetTeamId, int? presetSeasonId}) async {
+    final saved = await showModalBottomSheet<bool>(
+      context: context, 
+      isScrollControlled: true, 
+      backgroundColor: Colors.transparent, 
+      builder: (context) => _TeamPlayerFormSheet(
+        player: player, 
+        teams: data.teams, 
+        seasons: data.seasonOptions, 
+        roles: data.roles,
+        presetTeamId: presetTeamId,
+        presetSeasonId: presetSeasonId,
+      )
+    );
     if (saved == true) await _reload();
   }
 
@@ -211,7 +223,7 @@ class _MembersState extends State<Members> {
                         else ...[
                           SliverToBoxAdapter(child: _SeasonSelector(seasons: data.seasons, selectedSeasonId: selectedSeason?.id, onChanged: (id) { if (id == null) return; setState(() { _selectedSeasonId = id; _isEditingSelectedSeason = false; }); })),
                           if (selectedSeason == null) const SliverToBoxAdapter(child: _EmptyState(text: 'Select a season.'))
-                          else SliverToBoxAdapter(child: _SeasonPanel(season: selectedSeason, isEditing: _isEditingSelectedSeason, onToggleEditing: () => setState(() => _isEditingSelectedSeason = !_isEditingSelectedSeason), onEditPlayer: (player) => _openTeamPlayerForm(data: data, player: player))),
+                          else SliverToBoxAdapter(child: _SeasonPanel(season: selectedSeason, isEditing: _isEditingSelectedSeason, onToggleEditing: () => setState(() => _isEditingSelectedSeason = !_isEditingSelectedSeason), onEditPlayer: (player) => _openTeamPlayerForm(data: data, player: player), onAddPlayer: (teamId) => _openTeamPlayerForm(data: data, presetTeamId: teamId, presetSeasonId: selectedSeason.id))),
                         ],
                         const SliverToBoxAdapter(child: TechnicalSectionHeader(label: 'Members', color: Color(0xFF10B981), topPadding: 24)),
                         if (data.members.isEmpty) const SliverToBoxAdapter(child: _EmptyState(text: 'No personnel found.'))
@@ -235,8 +247,37 @@ class _MembersState extends State<Members> {
       floatingActionButton: FloatingActionButton(
         backgroundColor: kAccent,
         foregroundColor: kBackground,
-        onPressed: () {}, 
+        onPressed: () async {
+          final data = await _membersFuture;
+          if (!mounted) return;
+          _showAddMemberMenu(data);
+        }, 
         child: const Icon(Icons.add),
+      ),
+    );
+  }
+
+  void _showAddMemberMenu(_MembersPageData data) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _AddMemberMenu(
+        onAddTeamPlayer: () {
+          Navigator.pop(context);
+          _openTeamPlayerForm(data: data);
+        },
+        onAddGeneric: () {
+          Navigator.pop(context);
+          _openGenericMemberForm();
+        },
+        onAddMedia: () {
+          Navigator.pop(context);
+          _openMediaMemberForm();
+        },
+        onAddCoach: () {
+          Navigator.pop(context);
+          _openCoachForm();
+        },
       ),
     );
   }
@@ -327,6 +368,7 @@ class _TeamPlayer {
 
   Map<String, dynamic> toMap() => {'id': id, 'assignmentId': assignmentId, 'teamId': teamId, 'seasonId': seasonId, 'name': name, 'imageUrl': imageUrl, 'isActive': isActive, 'isGraduated': isGraduated, 'roles': roles};
   factory _TeamPlayer.fromMap(Map<String, dynamic> map) => _TeamPlayer(id: map['id'], assignmentId: map['assignmentId'], teamId: map['teamId'], seasonId: map['seasonId'], name: map['name'], imageUrl: map['imageUrl'], isActive: map['isActive'], isGraduated: map['isGraduated'], roles: List<String>.from(map['roles']));
+
 }
 
 class _TeamOption {
@@ -431,11 +473,12 @@ class _SeasonPanel extends StatelessWidget {
   final bool isEditing;
   final VoidCallback onToggleEditing;
   final ValueChanged<_TeamPlayer> onEditPlayer;
-  const _SeasonPanel({required this.season, required this.isEditing, required this.onToggleEditing, required this.onEditPlayer});
+  final ValueChanged<int> onAddPlayer;
+  const _SeasonPanel({required this.season, required this.isEditing, required this.onToggleEditing, required this.onEditPlayer, required this.onAddPlayer});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(padding: const EdgeInsets.fromLTRB(kPadding, 0, kPadding, 14), child: TechnicalCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [const Icon(Icons.layers_outlined, color: Color(0xFF6366F1), size: 18), const SizedBox(width: 10), Expanded(child: Text(season.name.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900, letterSpacing: 1.0))), _SmallIconButton(icon: isEditing ? Icons.done_all_rounded : Icons.edit_outlined, color: isEditing ? kAccent : const Color(0xFF6366F1), onTap: onToggleEditing)]), const SizedBox(height: 16), for (final t in season.teams) ...[_TeamPanel(team: t, showEditActions: isEditing, onEditPlayer: onEditPlayer), if (t != season.teams.last) const SizedBox(height: 12)]])));
+    return Padding(padding: const EdgeInsets.fromLTRB(kPadding, 0, kPadding, 14), child: TechnicalCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [const Icon(Icons.layers_outlined, color: Color(0xFF6366F1), size: 18), const SizedBox(width: 10), Expanded(child: Text(season.name.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900, letterSpacing: 1.0))), _SmallIconButton(icon: isEditing ? Icons.done_all_rounded : Icons.edit_outlined, color: isEditing ? kAccent : const Color(0xFF6366F1), onTap: onToggleEditing)]), const SizedBox(height: 16), for (final t in season.teams) ...[_TeamPanel(team: t, showEditActions: isEditing, onEditPlayer: onEditPlayer, onAddPlayer: () => onAddPlayer(t.id)), if (t != season.teams.last) const SizedBox(height: 12)]])));
   }
 }
 
@@ -443,11 +486,12 @@ class _TeamPanel extends StatelessWidget {
   final _TeamGroup team;
   final bool showEditActions;
   final ValueChanged<_TeamPlayer> onEditPlayer;
-  const _TeamPanel({required this.team, required this.showEditActions, required this.onEditPlayer});
+  final VoidCallback onAddPlayer;
+  const _TeamPanel({required this.team, required this.showEditActions, required this.onEditPlayer, required this.onAddPlayer});
 
   @override
   Widget build(BuildContext context) {
-    return Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: kBackground.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.white.withValues(alpha: 0.05))), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [Container(width: 32, height: 32, decoration: BoxDecoration(color: const Color(0xFF10B981).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.hub_outlined, color: Color(0xFF34D399), size: 16)), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(team.name.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900)), Text(_teamMeta(team), style: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 10, fontWeight: FontWeight.w700))])), _CountPill(count: team.players.length, color: const Color(0xFF34D399))]), const SizedBox(height: 12), for (final p in team.players) ...[_PlayerTile(player: p, showEditAction: showEditActions, onEdit: () => onEditPlayer(p)), if (p != team.players.last) const SizedBox(height: 9)]]));
+    return Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: kBackground.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.white.withValues(alpha: 0.05))), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [Container(width: 32, height: 32, decoration: BoxDecoration(color: const Color(0xFF10B981).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.hub_outlined, color: Color(0xFF34D399), size: 16)), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(team.name.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900)), Text(_teamMeta(team), style: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 10, fontWeight: FontWeight.w700))])), if (showEditActions) _SmallIconButton(icon: Icons.person_add_rounded, color: const Color(0xFF10B981), onTap: onAddPlayer), const SizedBox(width: 8), _CountPill(count: team.players.length, color: const Color(0xFF34D399))]), const SizedBox(height: 12), for (final p in team.players) ...[_PlayerTile(player: p, showEditAction: showEditActions, onEdit: () => onEditPlayer(p)), if (p != team.players.last) const SizedBox(height: 9)]]));
   }
 }
 
@@ -568,6 +612,77 @@ class _ErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(padding: const EdgeInsets.all(kPadding), child: Center(child: TechnicalCard(child: Column(mainAxisSize: MainAxisSize.min, children: [const Icon(Icons.warning_amber_rounded, color: Color(0xFFF87171), size: 32), const SizedBox(height: 12), const Text('ERROR', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900, letterSpacing: 1.0)), const SizedBox(height: 8), Text(message.toUpperCase(), textAlign: TextAlign.center, style: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 10, fontWeight: FontWeight.w600)), const SizedBox(height: 20), TechnicalButton(label: 'Retry', onTap: onRetry, color: const Color(0xFFF87171))]))));
+  }
+}
+
+class _AddMemberMenu extends StatelessWidget {
+  final VoidCallback onAddTeamPlayer;
+  final VoidCallback onAddGeneric;
+  final VoidCallback onAddMedia;
+  final VoidCallback onAddCoach;
+
+  const _AddMemberMenu({
+    required this.onAddTeamPlayer,
+    required this.onAddGeneric,
+    required this.onAddMedia,
+    required this.onAddCoach,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: const BoxDecoration(
+        color: kSurface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _MenuOption(label: 'TEAM MEMBER', icon: Icons.group_add_rounded, color: const Color(0xFF6366F1), onTap: onAddTeamPlayer),
+          const SizedBox(height: 12),
+          _MenuOption(label: 'PERSONNEL', icon: Icons.person_add_rounded, color: const Color(0xFF10B981), onTap: onAddGeneric),
+          const SizedBox(height: 12),
+          _MenuOption(label: 'MEDIA TEAM', icon: Icons.camera_enhance_rounded, color: const Color(0xFFEC4899), onTap: onAddMedia),
+          const SizedBox(height: 12),
+          _MenuOption(label: 'COACH', icon: Icons.sports_rounded, color: const Color(0xFFF59E0B), onTap: onAddCoach),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+}
+
+class _MenuOption extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _MenuOption({required this.label, required this.icon, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color),
+            const SizedBox(width: 16),
+            Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, letterSpacing: 1.0)),
+            const Spacer(),
+            Icon(Icons.chevron_right_rounded, color: color.withValues(alpha: 0.5)),
+          ],
+        ),
+      ),
+    );
   }
 }
 

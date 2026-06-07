@@ -5,12 +5,16 @@ class _TeamPlayerFormSheet extends StatefulWidget {
   final List<_TeamOption> teams;
   final List<_SeasonOption> seasons;
   final List<_RoleOption> roles;
+  final int? presetTeamId;
+  final int? presetSeasonId;
 
   const _TeamPlayerFormSheet({
     required this.player,
     required this.teams,
     required this.seasons,
     required this.roles,
+    this.presetTeamId,
+    this.presetSeasonId,
   });
 
   @override
@@ -64,8 +68,8 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
     final player = widget.player;
     _nameController.text = player?.name ?? '';
     _imageController.text = player?.imageUrl ?? '';
-    _teamId = player?.teamId ?? widget.teams.firstOrNull?.id;
-    _seasonId = player?.seasonId ?? widget.seasons.firstOrNull?.id;
+    _teamId = player?.teamId ?? widget.presetTeamId ?? widget.teams.firstOrNull?.id;
+    _seasonId = player?.seasonId ?? widget.presetSeasonId ?? widget.seasons.firstOrNull?.id;
     _isActive = player?.isActive ?? true;
     _isGraduated = player?.isGraduated ?? false;
     _roleIds = widget.roles
