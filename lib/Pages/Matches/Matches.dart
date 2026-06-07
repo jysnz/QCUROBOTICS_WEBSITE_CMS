@@ -495,8 +495,22 @@ class _MatchCardState extends State<_MatchCard> {
     debugPrint('[_playVideo] START - Match ID: ${widget.match.id}');
     if (widget.match.isProcessing) {
       debugPrint('[_playVideo] ABORT - Video is still processing');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Video is still processing. Please try again later.')),
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFF1F2937),
+          title: const Text('Processing Video', style: TextStyle(color: Colors.white)),
+          content: const Text(
+            'This video is currently being converted for high-quality streaming. Please wait a few minutes and try again.',
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK', style: TextStyle(color: Color(0xFFFBBF24))),
+            ),
+          ],
+        ),
       );
       return;
     }

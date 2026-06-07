@@ -127,10 +127,11 @@ class _MatchFormState extends State<MatchForm> {
           videoFile: _videoFile!,
           matchName: _nameController.text,
           matchId: matchId,
+          thumbnailFile: _thumbnailFile, // Pass manual thumbnail if provided
           oldMatchName: widget.match?['name'],
         );
       } else if (_thumbnailFile != null) {
-        // Handle manual thumbnail upload
+        // Only if NO NEW VIDEO, we upload thumbnail manually
         final sanitizedName = VideoService.sanitizeName(_nameController.text);
         final path = '$sanitizedName/thumbnail.jpg';
         await _supabase.storage.from('competition_matches').upload(
@@ -143,22 +144,34 @@ class _MatchFormState extends State<MatchForm> {
       }
 
       if (mounted) {
-        Navigator.of(context).pop(true);
         if (_videoFile != null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Video is uploading. Processing will happen in the background.')),
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => AlertDialog(
+              backgroundColor: const Color(0xFF1F2937),
+              title: const Row(
+                children: [
+                  Icon(Icons.cloud_upload_outlined, color: Color(0xFFFBBF24)),
+                  SizedBox(width: 10),
+                  Text('Upload Successful', style: TextStyle(color: Colors.white)),
+                ],
+              ),
+              content: const Text(
+                'Your video has been sent to our server for processing. It will be converted into high-quality streaming formats and a thumbnail will be generated. \n\nYou can safely close this and continue using the app.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Got it!', style: TextStyle(color: Color(0xFFFBBF24))),
+                ),
+              ],
+            ),
           );
         }
-      }
-    } catch (e) {
-
-      if (mounted) {
+        
         Navigator.of(context).pop(true);
-        if (_videoFile != null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Match saved! Video has been processed and is ready.')),
-          );
-        }
       }
     } catch (e) {
       debugPrint('Error saving match: $e');
