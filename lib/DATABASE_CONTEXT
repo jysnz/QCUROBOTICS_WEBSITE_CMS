@@ -61,6 +61,7 @@ create table public.matches (
   team_id bigint null,
   sequence bigint null,
   thumbnail text null,
+  is_processing boolean null default false,
   constraint matches_pkey primary key (id),
   constraint matches_competition_id_fkey foreign KEY (competition_id) references competitions (id) on delete CASCADE,
   constraint matches_team_id_fkey foreign KEY (team_id) references teams (id) on update CASCADE on delete CASCADE
@@ -218,3 +219,39 @@ $$;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+-- Storage Configuration
+-- Buckets
+insert into storage.buckets (id, name, public)
+values ('competition_matches', 'competition_matches', true)
+on conflict (id) do nothing;
+
+-- RLS Policies for competition_matches bucket
+create policy "Allow Media users to upload match assets"
+on storage.objects for insert
+to authenticated
+with check (
+  bucket_id = 'competition_matches' 
+  and (select position from public.user_accounts where id = auth.uid()) = 'Media'
+);
+
+create policy "Allow Media users to update match assets"
+on storage.objects for update
+to authenticated
+using (
+  bucket_id = 'competition_matches' 
+  and (select position from public.user_accounts where id = auth.uid()) = 'Media'
+);
+
+create policy "Allow Media users to delete match assets"
+on storage.objects for delete
+to authenticated
+using (
+  bucket_id = 'competition_matches' 
+  and (select position from public.user_accounts where id = auth.uid()) = 'Media'
+);
+
+create policy "Allow public to view match assets"
+on storage.objects for select
+to public
+using (bucket_id = 'competition_matches');

@@ -24,10 +24,13 @@ android {
         applicationId = "com.example.qcurobotics_management_app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Force FFmpegKit to use the full-gpl package (required for HLS/x264)
+        project.ext.set("ffmpegKitPackage", "full-gpl")
     }
 
     buildTypes {

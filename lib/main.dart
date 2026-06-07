@@ -8,16 +8,44 @@ import 'package:qcurobotics_management_app/Widgets/loading_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    WidgetsFlutterBinding.ensureInitialized();
 
-  await dotenv.load(fileName: ".env");
+    await dotenv.load(fileName: ".env").catchError((e) {
+      debugPrint("Warning: Could not load .env file: $e");
+    });
 
-  await Supabase.initialize(
-    url: dotenv.env['SUPABASE_URL']!,
-    anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
-  );
+    final supabaseUrl = dotenv.env['SUPABASE_URL'];
+    final supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'];
 
-  runApp(const MyApp());
+    if (supabaseUrl == null || supabaseAnonKey == null) {
+      throw Exception("SUPABASE_URL or SUPABASE_ANON_KEY missing in .env");
+    }
+
+    await Supabase.initialize(
+      url: supabaseUrl,
+      anonKey: supabaseAnonKey,
+    );
+
+    runApp(const MyApp());
+  } catch (e) {
+    debugPrint("CRITICAL INITIALIZATION ERROR: $e");
+    runApp(MaterialApp(
+      home: Scaffold(
+        backgroundColor: const Color(0xFF0B1020),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Text(
+              "Initialization Error:\n$e",
+              style: const TextStyle(color: Colors.red, fontSize: 16),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      ),
+    ));
+  }
 }
 
 class MyApp extends StatelessWidget {
