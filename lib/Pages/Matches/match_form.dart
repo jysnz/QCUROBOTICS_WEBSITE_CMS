@@ -217,8 +217,8 @@ class _MatchFormState extends State<MatchForm> {
                   style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
                   decoration: _inputDecoration('Operational Squad'),
                   items: [
-                    const DropdownMenuItem(value: null, child: Text('UNASSIGNED UNIT')),
-                    ...widget.teams.map((t) => DropdownMenuItem(value: t.id as int, child: Text('UNIT ${t.number}: ${t.name.toUpperCase()}'))),
+                    const DropdownMenuItem(value: null, child: Text('UNASSIGNED TEAM')),
+                    ...widget.teams.map((t) => DropdownMenuItem(value: t.id as int, child: Text('TEAM ${t.number}: ${t.name.toUpperCase()}'))),
                   ],
                   onChanged: (v) => setState(() => _selectedTeamId = v),
                 ),
@@ -281,6 +281,14 @@ class _MatchFormState extends State<MatchForm> {
                   isLoading: _isSaving,
                   color: const Color(0xFFFBBF24),
                 ),
+                if (widget.match != null) ...[
+                  const SizedBox(height: 12),
+                  TechnicalButton(
+                    label: 'TERMINATE RECORD',
+                    onTap: _isSaving ? () {} : _confirmDelete,
+                    color: const Color(0xFFF87171),
+                  ),
+                ],
                 const SizedBox(height: 24),
               ],
             ),
@@ -288,6 +296,71 @@ class _MatchFormState extends State<MatchForm> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDelete() async {
+    final controller = TextEditingController();
+    final matchName = widget.match?['name'] ?? '';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: kSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
+        title: const Text('Delete Match', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Are you sure you want to delete this match? This action cannot be undone.', style: TextStyle(color: Colors.white70, fontSize: 14)),
+            const SizedBox(height: 16),
+            Text('Type "$matchName" to confirm:', style: const TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: controller,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              autofocus: true,
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: kBackground.withValues(alpha: 0.3),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white10)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white10)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFF87171))),
+                hintText: 'Enter match title',
+                hintStyle: const TextStyle(color: Colors.white10),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel', style: TextStyle(color: Colors.white38, fontSize: 13, fontWeight: FontWeight.w700))),
+          ListenableBuilder(
+            listenable: controller,
+            builder: (context, child) {
+              final canDelete = controller.text.trim() == matchName;
+              return TextButton(
+                onPressed: canDelete ? () => Navigator.pop(context, true) : null,
+                child: Text('Delete', style: TextStyle(color: canDelete ? const Color(0xFFF87171) : Colors.white10, fontSize: 13, fontWeight: FontWeight.w800)),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      setState(() => _isSaving = true);
+      try {
+        await VideoService.deleteMatchAssets(matchName);
+        await _supabase.from('matches').delete().eq('id', widget.match!['id']);
+        if (mounted) Navigator.of(context).pop(true);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        }
+      } finally {
+        if (mounted) setState(() => _isSaving = false);
+      }
+    }
   }
 
   InputDecoration _inputDecoration(String label) {

@@ -442,37 +442,6 @@ class _MatchCardState extends State<_MatchCard> {
     });
   }
 
-  Future<void> _confirmDelete() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: kSurface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
-        title: const Text('Delete Match', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
-        content: const Text('Are you sure you want to delete this match?', style: TextStyle(color: Colors.white70, fontSize: 14)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel', style: TextStyle(color: Colors.white38, fontSize: 13, fontWeight: FontWeight.w700))),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete', style: TextStyle(color: Color(0xFFF87171), fontSize: 13, fontWeight: FontWeight.w800)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      try {
-        await VideoService.deleteMatchAssets(widget.match.name);
-        await _supabase.from('matches').delete().eq('id', widget.match.id);
-        widget.onUpdate();
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-        }
-      }
-    }
-  }
-
   Future<void> _playVideo() async {
     if (widget.match.isProcessing) {
       showDialog(
@@ -628,8 +597,6 @@ class _MatchCardState extends State<_MatchCard> {
                 child: Row(
                   children: [
                     _SmallActionBtn(icon: Icons.edit_note_rounded, onTap: _showEditForm),
-                    const SizedBox(width: 6),
-                    _SmallActionBtn(icon: Icons.delete_sweep_rounded, onTap: _confirmDelete, color: const Color(0xFFF87171)),
                   ],
                 ),
               ),

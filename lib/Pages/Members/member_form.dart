@@ -276,6 +276,7 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
       isSaving: _isSaving,
       canSave: _hasChanges,
       onSave: _save,
+      onDelete: isEditing ? _confirmDelete : null,
       child: Form(
         key: _formKey,
         child: Column(
@@ -341,6 +342,68 @@ class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDelete() async {
+    final controller = TextEditingController();
+    final name = _nameController.text.trim();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: kSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
+        title: const Text('Delete Member', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Are you sure you want to delete this member? This action cannot be undone and all associated data will be removed.', style: TextStyle(color: Colors.white70, fontSize: 14)),
+            const SizedBox(height: 16),
+            Text('Type "$name" to confirm:', style: const TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: controller,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              autofocus: true,
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: kBackground.withValues(alpha: 0.3),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white10)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white10)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: kAccent)),
+                hintText: 'Enter name',
+                hintStyle: const TextStyle(color: Colors.white10),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel', style: TextStyle(color: Colors.white38, fontSize: 13, fontWeight: FontWeight.w700))),
+          ListenableBuilder(
+            listenable: controller,
+            builder: (context, child) {
+              final canDelete = controller.text.trim() == name;
+              return TextButton(
+                onPressed: canDelete ? () => Navigator.pop(context, true) : null,
+                child: Text('Delete', style: TextStyle(color: canDelete ? const Color(0xFFF87171) : Colors.white10, fontSize: 13, fontWeight: FontWeight.w800)),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      setState(() => _isSaving = true);
+      try {
+        await _supabase.from('team_members').delete().eq('id', widget.player!.id);
+        if (mounted) Navigator.of(context).pop(true);
+      } catch (e) {
+        _showError(e.toString());
+      } finally {
+        if (mounted) setState(() => _isSaving = false);
+      }
+    }
   }
 }
 
@@ -543,6 +606,7 @@ class _MediaMemberFormSheetState extends State<_MediaMemberFormSheet> {
       isSaving: _isSaving,
       canSave: _hasChanges,
       onSave: _save,
+      onDelete: isEditing ? _confirmDelete : null,
       child: Form(
         key: _formKey,
         child: Column(
@@ -570,6 +634,68 @@ class _MediaMemberFormSheetState extends State<_MediaMemberFormSheet> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDelete() async {
+    final controller = TextEditingController();
+    final name = _nameController.text.trim();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: kSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
+        title: const Text('Delete Member', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Are you sure you want to delete this member? This action cannot be undone and all associated data will be removed.', style: TextStyle(color: Colors.white70, fontSize: 14)),
+            const SizedBox(height: 16),
+            Text('Type "$name" to confirm:', style: const TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: controller,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              autofocus: true,
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: kBackground.withValues(alpha: 0.3),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white10)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white10)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: kAccent)),
+                hintText: 'Enter name',
+                hintStyle: const TextStyle(color: Colors.white10),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel', style: TextStyle(color: Colors.white38, fontSize: 13, fontWeight: FontWeight.w700))),
+          ListenableBuilder(
+            listenable: controller,
+            builder: (context, child) {
+              final canDelete = controller.text.trim() == name;
+              return TextButton(
+                onPressed: canDelete ? () => Navigator.pop(context, true) : null,
+                child: Text('Delete', style: TextStyle(color: canDelete ? const Color(0xFFF87171) : Colors.white10, fontSize: 13, fontWeight: FontWeight.w800)),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      setState(() => _isSaving = true);
+      try {
+        await _supabase.from('media_team').delete().eq('id', widget.row!['id']);
+        if (mounted) Navigator.of(context).pop(true);
+      } catch (e) {
+        _showError(e.toString());
+      } finally {
+        if (mounted) setState(() => _isSaving = false);
+      }
+    }
   }
 }
 
@@ -811,6 +937,7 @@ class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
       isSaving: _isSaving,
       canSave: _hasChanges,
       onSave: _save,
+      onDelete: isEditing ? _confirmDelete : null,
       child: Form(
         key: _formKey,
         child: Column(
@@ -847,6 +974,68 @@ class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDelete() async {
+    final controller = TextEditingController();
+    final name = _nameController.text.trim();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: kSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
+        title: const Text('Delete Member', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Are you sure you want to delete this member? This action cannot be undone and all associated data will be removed.', style: TextStyle(color: Colors.white70, fontSize: 14)),
+            const SizedBox(height: 16),
+            Text('Type "$name" to confirm:', style: const TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: controller,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              autofocus: true,
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: kBackground.withValues(alpha: 0.3),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white10)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white10)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: kAccent)),
+                hintText: 'Enter name',
+                hintStyle: const TextStyle(color: Colors.white10),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel', style: TextStyle(color: Colors.white38, fontSize: 13, fontWeight: FontWeight.w700))),
+          ListenableBuilder(
+            listenable: controller,
+            builder: (context, child) {
+              final canDelete = controller.text.trim() == name;
+              return TextButton(
+                onPressed: canDelete ? () => Navigator.pop(context, true) : null,
+                child: Text('Delete', style: TextStyle(color: canDelete ? const Color(0xFFF87171) : Colors.white10, fontSize: 13, fontWeight: FontWeight.w800)),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      setState(() => _isSaving = true);
+      try {
+        await _supabase.from('members').delete().eq('id', widget.row!['id']);
+        if (mounted) Navigator.of(context).pop(true);
+      } catch (e) {
+        _showError(e.toString());
+      } finally {
+        if (mounted) setState(() => _isSaving = false);
+      }
+    }
   }
 }
 
@@ -1040,6 +1229,7 @@ class _CoachFormSheetState extends State<_CoachFormSheet> {
       isSaving: _isSaving,
       canSave: _hasChanges,
       onSave: _save,
+      onDelete: isEditing ? _confirmDelete : null,
       child: Form(
         key: _formKey,
         child: Column(
@@ -1066,6 +1256,68 @@ class _CoachFormSheetState extends State<_CoachFormSheet> {
       ),
     );
   }
+
+  Future<void> _confirmDelete() async {
+    final controller = TextEditingController();
+    final name = _nameController.text.trim();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: kSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
+        title: const Text('Delete Coach', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Are you sure you want to delete this coach? This action cannot be undone.', style: TextStyle(color: Colors.white70, fontSize: 14)),
+            const SizedBox(height: 16),
+            Text('Type "$name" to confirm:', style: const TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: controller,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              autofocus: true,
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: kBackground.withValues(alpha: 0.3),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white10)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white10)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: kAccent)),
+                hintText: 'Enter name',
+                hintStyle: const TextStyle(color: Colors.white10),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel', style: TextStyle(color: Colors.white38, fontSize: 13, fontWeight: FontWeight.w700))),
+          ListenableBuilder(
+            listenable: controller,
+            builder: (context, child) {
+              final canDelete = controller.text.trim() == name;
+              return TextButton(
+                onPressed: canDelete ? () => Navigator.pop(context, true) : null,
+                child: Text('Delete', style: TextStyle(color: canDelete ? const Color(0xFFF87171) : Colors.white10, fontSize: 13, fontWeight: FontWeight.w800)),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      setState(() => _isSaving = true);
+      try {
+        await _supabase.from('Coaches').delete().eq('id', widget.row!['id']);
+        if (mounted) Navigator.of(context).pop(true);
+      } catch (e) {
+        _showError(e.toString());
+      } finally {
+        if (mounted) setState(() => _isSaving = false);
+      }
+    }
+  }
 }
 
 class _FormSheetScaffold extends StatelessWidget {
@@ -1074,6 +1326,7 @@ class _FormSheetScaffold extends StatelessWidget {
   final bool isSaving;
   final VoidCallback onSave;
   final bool canSave;
+  final VoidCallback? onDelete;
 
   const _FormSheetScaffold({
     required this.title,
@@ -1081,6 +1334,7 @@ class _FormSheetScaffold extends StatelessWidget {
     required this.isSaving,
     required this.onSave,
     this.canSave = true,
+    this.onDelete,
   });
 
   @override
@@ -1140,14 +1394,25 @@ class _FormSheetScaffold extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
                 child: TechnicalButton(
-                  label: isSaving ? 'Saving...' : 'Save',
+                  label: isSaving ? 'SAVING...' : 'SAVE',
                   onTap: (isSaving || !canSave) ? () {} : onSave,
                   isLoading: isSaving,
                   color: canSave ? kAccent : Colors.white24,
                 ),
               ),
+              if (onDelete != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  child: TechnicalButton(
+                    label: 'DELETE',
+                    onTap: isSaving ? () {} : onDelete!,
+                    color: const Color(0xFFF87171),
+                  ),
+                )
+              else
+                const SizedBox(height: 16),
             ],
           ),
         ),

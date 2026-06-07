@@ -1134,6 +1134,7 @@ class _CompFormSheetState extends State<_CompFormSheet> {
       isSaving: _isSaving,
       canSave: _hasChanges,
       onSave: _save,
+      onDelete: isEditing ? _confirmDelete : null,
       child: Form(
         key: _formKey,
         child: Column(
@@ -1181,6 +1182,76 @@ class _CompFormSheetState extends State<_CompFormSheet> {
       ),
     );
   }
+
+  Future<void> _confirmDelete() async {
+    final controller = TextEditingController();
+    final tournamentTitle = _titleController.text.trim();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: kSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
+        title: const Text('Delete Tournament', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Are you sure you want to delete this tournament? This action cannot be undone and all associated data will be removed.', style: TextStyle(color: Colors.white70, fontSize: 14)),
+            const SizedBox(height: 16),
+            Text('Type "$tournamentTitle" to confirm:', style: const TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: controller,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              autofocus: true,
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: kBackground.withValues(alpha: 0.3),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white10)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white10)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFFBBF24))),
+                hintText: 'Enter tournament title',
+                hintStyle: const TextStyle(color: Colors.white10),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel', style: TextStyle(color: Colors.white38, fontSize: 13, fontWeight: FontWeight.w700))),
+          ListenableBuilder(
+            listenable: controller,
+            builder: (context, child) {
+              final canDelete = controller.text.trim() == tournamentTitle;
+              return TextButton(
+                onPressed: canDelete ? () => Navigator.pop(context, true) : null,
+                child: Text('Delete', style: TextStyle(color: canDelete ? const Color(0xFFF87171) : Colors.white10, fontSize: 13, fontWeight: FontWeight.w800)),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      setState(() => _isSaving = true);
+      try {
+        final id = _intValue(widget.row?['id']);
+        await _supabase.from('competitions').delete().eq('id', id!);
+        if (mounted) Navigator.of(context).pop(true);
+      } catch (e) {
+        if (mounted) {
+          _showResultDialog(
+            icon: Icons.error_outline_rounded,
+            iconColor: const Color(0xFFF87171),
+            title: 'Error',
+            message: e.toString(),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isSaving = false);
+      }
+    }
+  }
 }
 
 class _FormSheetScaffold extends StatelessWidget {
@@ -1189,6 +1260,7 @@ class _FormSheetScaffold extends StatelessWidget {
   final bool isSaving;
   final VoidCallback onSave;
   final bool canSave;
+  final VoidCallback? onDelete;
 
   const _FormSheetScaffold({
     required this.title,
@@ -1196,6 +1268,7 @@ class _FormSheetScaffold extends StatelessWidget {
     required this.isSaving,
     required this.onSave,
     this.canSave = true,
+    this.onDelete,
   });
 
   @override
@@ -1255,7 +1328,7 @@ class _FormSheetScaffold extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
                 child: TechnicalButton(
                   label: isSaving ? 'SAVING...' : 'SAVE',
                   onTap: (isSaving || !canSave) ? () {} : onSave,
@@ -1263,6 +1336,17 @@ class _FormSheetScaffold extends StatelessWidget {
                   color: canSave ? const Color(0xFFFBBF24) : Colors.white24,
                 ),
               ),
+              if (onDelete != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  child: TechnicalButton(
+                    label: 'DELETE',
+                    onTap: isSaving ? () {} : onDelete!,
+                    color: const Color(0xFFF87171),
+                  ),
+                )
+              else
+                const SizedBox(height: 16),
             ],
           ),
         ),
