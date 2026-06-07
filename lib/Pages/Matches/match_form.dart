@@ -72,28 +72,6 @@ class _MatchFormState extends State<MatchForm> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // Validation: Ensure video is provided for new matches or preserved for existing ones
-    if (_videoFile == null && (widget.match == null || widget.match!['video_url'] == null)) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          backgroundColor: const Color(0xFF1F2937),
-          title: const Text('Video Required', style: TextStyle(color: Colors.white)),
-          content: const Text(
-            'You haven\'t added a video for this match. Please select a video before saving.',
-            style: TextStyle(color: Colors.white70),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK', style: TextStyle(color: Color(0xFFFBBF24))),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
     setState(() => _isSaving = true);
 
     try {
