@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import '../../Services/video_service.dart';
+import '../../Widgets/design_system.dart';
 
 class MatchForm extends StatefulWidget {
   final int competitionId;
@@ -80,14 +81,14 @@ class _MatchFormState extends State<MatchForm> {
 
       final data = {
         'competition_id': widget.competitionId,
-        'name': _nameController.text,
-        'our_score': int.parse(_ourScoreController.text),
-        'opponent_score': int.parse(_opponentScoreController.text),
-        'opponent_name': _opponentNameController.text,
+        'name': _nameController.text.trim(),
+        'our_score': int.tryParse(_ourScoreController.text) ?? 0,
+        'opponent_score': int.tryParse(_opponentScoreController.text) ?? 0,
+        'opponent_name': _opponentNameController.text.trim(),
         'team_id': _selectedTeamId,
         'video_url': videoUrl,
         'thumbnail': thumbnailUrl,
-        'is_processing': _videoFile != null, // Mark as processing if new video is uploaded
+        'is_processing': _videoFile != null, 
       };
 
       int matchId;
@@ -99,18 +100,16 @@ class _MatchFormState extends State<MatchForm> {
         await _supabase.from('matches').update(data).eq('id', matchId);
       }
 
-      // Handle video upload and remote processing trigger
       if (_videoFile != null) {
         await VideoService.uploadAndProcess(
           videoFile: _videoFile!,
-          matchName: _nameController.text,
+          matchName: _nameController.text.trim(),
           matchId: matchId,
-          thumbnailFile: _thumbnailFile, // Pass manual thumbnail if provided
+          thumbnailFile: _thumbnailFile,
           oldMatchName: widget.match?['name'],
         );
       } else if (_thumbnailFile != null) {
-        // Only if NO NEW VIDEO, we upload thumbnail manually
-        final sanitizedName = VideoService.sanitizeName(_nameController.text);
+        final sanitizedName = VideoService.sanitizeName(_nameController.text.trim());
         final path = '$sanitizedName/thumbnail.jpg';
         await _supabase.storage.from('competition_matches').upload(
           path, 
@@ -127,22 +126,23 @@ class _MatchFormState extends State<MatchForm> {
             context: context,
             barrierDismissible: false,
             builder: (context) => AlertDialog(
-              backgroundColor: const Color(0xFF1F2937),
+              backgroundColor: kSurface,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
               title: const Row(
                 children: [
                   Icon(Icons.cloud_upload_outlined, color: Color(0xFFFBBF24)),
                   SizedBox(width: 10),
-                  Text('Upload Successful', style: TextStyle(color: Colors.white)),
+                  Text('LINK ESTABLISHED', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
                 ],
               ),
               content: const Text(
-                'Your video has been sent to our server for processing. It will be converted into high-quality streaming formats and a thumbnail will be generated. \n\nYou can safely close this and continue using the app.',
-                style: TextStyle(color: Colors.white70),
+                'Telemetry feed has been routed to processing servers. Background encoding initialized.',
+                style: TextStyle(color: Colors.white70, fontSize: 13),
               ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Got it!', style: TextStyle(color: Color(0xFFFBBF24))),
+                  child: const Text('ACKNOWLEDGE', style: TextStyle(color: Color(0xFFFBBF24), fontWeight: FontWeight.w800, fontSize: 11)),
                 ),
               ],
             ),
@@ -152,10 +152,9 @@ class _MatchFormState extends State<MatchForm> {
         Navigator.of(context).pop(true);
       }
     } catch (e) {
-      debugPrint('Error saving match: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving match: $e')),
+          SnackBar(content: Text('PROTOCOL ERROR: $e')),
         );
       }
     } finally {
@@ -165,101 +164,179 @@ class _MatchFormState extends State<MatchForm> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: const BoxDecoration(
-        color: Color(0xFF0B1020),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                widget.match == null ? 'Add Match' : 'Edit Match',
-                style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 20),
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Match Name', labelStyle: TextStyle(color: Colors.white70)),
-                style: const TextStyle(color: Colors.white),
-                validator: (v) => v == null || v.isEmpty ? 'Required' : null,
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<int?>(
-                value: _selectedTeamId,
-                items: [
-                  const DropdownMenuItem(value: null, child: Text('No Team')),
-                  ...widget.teams.map((t) => DropdownMenuItem(value: t.id as int, child: Text('Team ${t.number}: ${t.name}'))),
-                ],
-                onChanged: (v) => setState(() => _selectedTeamId = v),
-                decoration: const InputDecoration(labelText: 'Team', labelStyle: TextStyle(color: Colors.white70)),
-                dropdownColor: const Color(0xFF1F2937),
-                style: const TextStyle(color: Colors.white),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _ourScoreController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Our Score', labelStyle: TextStyle(color: Colors.white70)),
-                      style: const TextStyle(color: Colors.white),
-                    ),
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: kSurface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+        ),
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(2)),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _opponentScoreController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Opponent Score', labelStyle: TextStyle(color: Colors.white70)),
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _opponentNameController,
-                decoration: const InputDecoration(labelText: 'Opponent Name', labelStyle: TextStyle(color: Colors.white70)),
-                style: const TextStyle(color: Colors.white),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _pickVideo,
-                      icon: const Icon(Icons.video_library),
-                      label: Text(_videoFile != null ? 'Video Selected' : 'Pick Video'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _pickThumbnail,
-                      icon: const Icon(Icons.image),
-                      label: Text(_thumbnailFile != null ? 'Thumb Selected' : 'Pick Thumb'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 30),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _isSaving ? null : _save,
-                  child: _isSaving ? const CircularProgressIndicator() : const Text('Save Match'),
                 ),
-              ),
-              const SizedBox(height: 20),
-            ],
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        (widget.match == null ? 'Initialize Log' : 'Edit Log').toUpperCase(),
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.0),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white38),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                TextFormField(
+                  controller: _nameController,
+                  decoration: _inputDecoration('Log Designation'),
+                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                  validator: (v) => v == null || v.isEmpty ? 'REQUIRED' : null,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int?>(
+                  value: _selectedTeamId,
+                  dropdownColor: kSurface,
+                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                  decoration: _inputDecoration('Operational Squad'),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('UNASSIGNED UNIT')),
+                    ...widget.teams.map((t) => DropdownMenuItem(value: t.id as int, child: Text('UNIT ${t.number}: ${t.name.toUpperCase()}'))),
+                  ],
+                  onChanged: (v) => setState(() => _selectedTeamId = v),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _ourScoreController,
+                        keyboardType: TextInputType.number,
+                        decoration: _inputDecoration('Home Score'),
+                        style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _opponentScoreController,
+                        keyboardType: TextInputType.number,
+                        decoration: _inputDecoration('Target Score'),
+                        style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _opponentNameController,
+                  decoration: _inputDecoration('Target Designation'),
+                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 24),
+                
+                Row(
+                  children: [
+                    Expanded(
+                      child: _AssetBtn(
+                        label: 'FEED',
+                        isSelected: _videoFile != null,
+                        icon: Icons.videocam_outlined,
+                        onTap: _pickVideo,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _AssetBtn(
+                        label: 'THUMB',
+                        isSelected: _thumbnailFile != null,
+                        icon: Icons.image_outlined,
+                        onTap: _pickThumbnail,
+                      ),
+                    ),
+                  ],
+                ),
+                
+                const SizedBox(height: 32),
+                TechnicalButton(
+                  label: _isSaving ? 'PROCESSING...' : 'EXECUTE COMMAND',
+                  onTap: _isSaving ? () {} : _save,
+                  isLoading: _isSaving,
+                  color: const Color(0xFFFBBF24),
+                ),
+                const SizedBox(height: 24),
+              ],
+            ),
           ),
+        ),
+      ),
+    );
+  }
+
+  InputDecoration _inputDecoration(String label) {
+    return InputDecoration(
+      labelText: label.toUpperCase(),
+      labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.0),
+      filled: true,
+      fillColor: kBackground.withValues(alpha: 0.3),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(kRadius),
+        borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.05)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(kRadius),
+        borderSide: const BorderSide(color: Color(0xFFFBBF24), width: 1.0),
+      ),
+    );
+  }
+}
+
+class _AssetBtn extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _AssetBtn({required this.label, required this.isSelected, required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 48,
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFFBBF24).withValues(alpha: 0.1) : Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(kRadius),
+          border: Border.all(color: isSelected ? const Color(0xFFFBBF24).withValues(alpha: 0.4) : Colors.white.withValues(alpha: 0.05)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: isSelected ? const Color(0xFFFBBF24) : Colors.white38, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              label.toUpperCase(),
+              style: TextStyle(color: isSelected ? const Color(0xFFFBBF24) : Colors.white38, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.0),
+            ),
+          ],
         ),
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:qcurobotics_management_app/Widgets/design_system.dart';
 
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
@@ -8,141 +9,127 @@ class ProfilePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return const Scaffold(body: Center(child: Text('Not logged in')));
+    if (user == null) return const Scaffold(body: Center(child: Text('Not Authorized')));
 
-    final fullName = user.userMetadata?['full_name'] ?? 'User';
+    final fullName = user.userMetadata?['full_name'] ?? 'Admin';
     final photoUrl = user.userMetadata?['avatar_url'];
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0B1020),
+      backgroundColor: kBackground,
       body: Stack(
         children: [
-          const _ProfileBackground(),
+          const TechnicalGridBackground(),
           SafeArea(
             child: Column(
               children: [
-                // Top bar with back button
+                // Top Bar
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.all(kPadding),
                   child: Row(
                     children: [
-                      IconButton(
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
-                        style: IconButton.styleFrom(
-                          backgroundColor: Colors.white.withValues(alpha: 0.05),
-                        ),
+                      _IconButton(
+                        icon: Icons.arrow_back_ios_new_rounded,
+                        onTap: () => Navigator.pop(context),
                       ),
                       const Expanded(
                         child: Text(
                           'Profile',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontSize: 20,
+                            fontSize: 18,
                             fontWeight: FontWeight.w900,
                             color: Colors.white,
-                            letterSpacing: 0.5,
+                            letterSpacing: 1.0,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 48), // Spacer to balance back button
+                      const SizedBox(width: 40),
                     ],
                   ),
                 ),
 
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
                     child: Column(
                       children: [
                         const SizedBox(height: 20),
-                        // Profile Image with Gradient Border
+                        // Avatar
                         Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: const BoxDecoration(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            gradient: LinearGradient(
-                              colors: [Color(0xFF6366F1), Color(0xFFEC4899)],
-                            ),
+                            border: Border.all(color: kAccent.withValues(alpha: 0.3)),
                           ),
                           child: CircleAvatar(
-                            radius: 60,
-                            backgroundImage: photoUrl != null
-                                ? NetworkImage(photoUrl)
-                                : const NetworkImage('https://i.pravatar.cc/150?img=11'),
+                            radius: 54,
+                            backgroundColor: kSurface,
+                            backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
+                            child: photoUrl == null ? const Icon(Icons.person_outline, size: 40, color: Colors.white24) : null,
                           ),
                         ),
                         const SizedBox(height: 24),
                         Text(
                           fullName,
+                          textAlign: TextAlign.center,
                           style: const TextStyle(
-                            fontSize: 28,
+                            fontSize: 22,
                             fontWeight: FontWeight.w900,
                             color: Colors.white,
+                            letterSpacing: -0.5,
                           ),
                         ),
+                        const SizedBox(height: 4),
                         Text(
-                          user.email ?? '',
+                          user.email ?? 'No Email',
                           style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.white.withValues(alpha: 0.5),
-                            fontWeight: FontWeight.w500,
+                            fontSize: 12,
+                            color: Colors.white.withValues(alpha: 0.3),
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                        const SizedBox(height: 40),
+                        const SizedBox(height: 48),
 
-                        // Info Section
-                        _GlassCard(
-                          padding: const EdgeInsets.all(20),
+                        const TechnicalSectionHeader(label: 'Account Information', color: kAccent, topPadding: 0),
+                        
+                        TechnicalCard(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               _ProfileInfoItem(
                                 label: 'Full Name',
                                 value: fullName,
-                                icon: Icons.person_outline_rounded,
+                                icon: Icons.badge_outlined,
                               ),
                               const Divider(height: 32, color: Colors.white10),
                               _ProfileInfoItem(
-                                label: 'Email Address',
+                                label: 'Email',
                                 value: user.email ?? 'N/A',
-                                icon: Icons.email_outlined,
+                                icon: Icons.alternate_email_rounded,
                               ),
                             ],
                           ),
                         ),
 
-                        const SizedBox(height: 32),
+                        const SizedBox(height: 48),
 
-                        // Logout Button
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed: () async {
-                              try {
-                                await GoogleSignIn().signOut();
-                              } catch (e) {
-                                debugPrint('Google sign out error: $e');
-                              }
-                              await Supabase.instance.client.auth.signOut();
-                              if (context.mounted) {
-                                Navigator.pop(context);
-                              }
-                            },
-                            icon: const Icon(Icons.logout_rounded),
-                            label: const Text('Logout Account', style: TextStyle(fontWeight: FontWeight.w700)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.redAccent.withValues(alpha: 0.15),
-                              foregroundColor: Colors.redAccent,
-                              padding: const EdgeInsets.symmetric(vertical: 18),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                                side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.3)),
-                              ),
-                              elevation: 0,
-                            ),
-                          ),
+                        TechnicalButton(
+                          label: 'Logout',
+                          color: const Color(0xFFF87171),
+                          onTap: () async {
+                            try {
+                              await GoogleSignIn().signOut();
+                            } catch (e) {
+                              debugPrint('Google sign out error: $e');
+                            }
+                            await Supabase.instance.client.auth.signOut();
+                            if (context.mounted) {
+                              Navigator.pop(context);
+                            }
+                          },
+                          icon: Icons.power_settings_new_rounded,
                         ),
+                        const SizedBox(height: 32),
                       ],
                     ),
                   ),
@@ -151,6 +138,31 @@ class ProfilePage extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _IconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _IconButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: kSurface.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+        ),
+        child: Icon(icon, color: Colors.white, size: 18),
       ),
     );
   }
@@ -172,14 +184,14 @@ class _ProfileInfoItem extends StatelessWidget {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(12),
+            color: kBackground.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(8),
           ),
-          child: Icon(icon, color: const Color(0xFF6366F1), size: 22),
+          child: Icon(icon, color: kAccent.withValues(alpha: 0.7), size: 18),
         ),
-        const SizedBox(width: 16),
+        const SizedBox(width: 14),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -187,105 +199,24 @@ class _ProfileInfoItem extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.white.withValues(alpha: 0.4),
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5,
+                  fontSize: 10,
+                  color: Colors.white.withValues(alpha: 0.3),
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 value,
                 style: const TextStyle(
-                  fontSize: 15,
+                  fontSize: 14,
                   color: Colors.white,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ],
           ),
         ),
       ],
-    );
-  }
-}
-
-class _ProfileBackground extends StatelessWidget {
-  const _ProfileBackground();
-
-  @override
-  Widget build(BuildContext context) {
-    return const RepaintBoundary(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment.topLeft,
-            radius: 1.2,
-            colors: [Color(0x1F6366F1), Color(0x0F14B8A6), Color(0x000B1020)],
-            stops: [0, 0.45, 1],
-          ),
-        ),
-        child: SizedBox.expand(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment.bottomRight,
-                radius: 1.1,
-                colors: [Color(0x1414B8A6), Color(0x000B1020)],
-                stops: [0, 0.72],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _GlassCard extends StatelessWidget {
-  final Widget child;
-  final EdgeInsetsGeometry padding;
-  final double radius;
-
-  const _GlassCard({
-    required this.child,
-    this.padding = const EdgeInsets.all(16),
-    this.radius = 24,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(radius),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.18),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Container(
-        padding: padding,
-        decoration: BoxDecoration(
-          color: const Color(0xFF111827).withValues(alpha: 0.88),
-          borderRadius: BorderRadius.circular(radius),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.08),
-            width: 1,
-          ),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.white.withValues(alpha: 0.05),
-              Colors.white.withValues(alpha: 0.012),
-            ],
-          ),
-        ),
-        child: child,
-      ),
     );
   }
 }

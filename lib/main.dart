@@ -3,7 +3,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/login_page.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/register_page.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/welcome_page.dart';
-import 'package:qcurobotics_management_app/Pages/Dashboard/Dashboard.dart';
+import 'package:qcurobotics_management_app/Pages/Dashboard/dashboard.dart';
 import 'package:qcurobotics_management_app/Widgets/loading_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -32,7 +32,7 @@ Future<void> main() async {
     debugPrint("CRITICAL INITIALIZATION ERROR: $e");
     runApp(MaterialApp(
       home: Scaffold(
-        backgroundColor: const Color(0xFF0B1020),
+        backgroundColor: const Color(0xFF020617),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24.0),
@@ -55,14 +55,19 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Flutter Demo',
+      title: 'QCU Robotics CMS',
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF0B1020),
-        canvasColor: const Color(0xFF0B1020),
+        scaffoldBackgroundColor: const Color(0xFF020617), // kBackground
+        canvasColor: const Color(0xFF020617),
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
+          seedColor: const Color(0xFF22C55E), // kAccent
           brightness: Brightness.dark,
+          surface: const Color(0xFF1E293B), // kSurface
+        ),
+        textTheme: const TextTheme(
+          displayLarge: TextStyle(letterSpacing: -1.0, fontWeight: FontWeight.w900),
+          headlineMedium: TextStyle(letterSpacing: 1.0, fontWeight: FontWeight.w800),
         ),
       ),
       home: const AuthGate(),
@@ -136,7 +141,7 @@ class _AuthGateState extends State<AuthGate> {
       builder: (context, profileSnapshot) {
         if (profileSnapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
-            backgroundColor: Color(0xFF0B1020),
+            backgroundColor: Color(0xFF020617),
             body: DashboardSkeleton(),
           );
         }

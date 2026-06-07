@@ -1,34 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:qcurobotics_management_app/Widgets/design_system.dart';
 
 class AuthBackground extends StatelessWidget {
   const AuthBackground({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return const RepaintBoundary(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment.topRight,
-            radius: 1.15,
-            colors: [Color(0x1F6366F1), Color(0x0F14B8A6), Color(0x000B1020)],
-            stops: [0, 0.45, 1],
-          ),
-        ),
-        child: SizedBox.expand(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment.bottomLeft,
-                radius: 1.1,
-                colors: [Color(0x1414B8A6), Color(0x000B1020)],
-                stops: [0, 0.72],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+    return const TechnicalGridBackground();
   }
 }
 
@@ -40,43 +18,15 @@ class AuthGlassCard extends StatelessWidget {
   const AuthGlassCard({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(28),
-    this.radius = 28,
+    this.padding = const EdgeInsets.all(24),
+    this.radius = kRadius,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(radius),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.18),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Container(
-        padding: padding,
-        decoration: BoxDecoration(
-          color: const Color(0xFF111827).withValues(alpha: 0.88),
-          borderRadius: BorderRadius.circular(radius),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.08),
-            width: 1,
-          ),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.white.withValues(alpha: 0.05),
-              Colors.white.withValues(alpha: 0.012),
-            ],
-          ),
-        ),
-        child: child,
-      ),
+    return TechnicalCard(
+      padding: padding,
+      child: child,
     );
   }
 }
@@ -108,26 +58,32 @@ class AuthTextField extends StatelessWidget {
       enabled: enabled,
       style: TextStyle(
         color: enabled ? Colors.white : Colors.white54,
-        fontSize: 15,
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
       ),
       decoration: InputDecoration(
-        labelText: label,
-        labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
-        prefixIcon: Icon(icon, color: const Color(0xFF6366F1)),
+        labelText: label.toUpperCase(),
+        labelStyle: TextStyle(
+          color: Colors.white.withValues(alpha: 0.3),
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.0,
+        ),
+        prefixIcon: Icon(icon, color: kAccent.withValues(alpha: 0.7), size: 20),
         filled: true,
-        fillColor: Colors.white.withValues(alpha: 0.03),
-        contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+        fillColor: kBackground.withValues(alpha: 0.3),
+        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+          borderRadius: BorderRadius.circular(kRadius),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.05)),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+          borderRadius: BorderRadius.circular(kRadius),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.05)),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.5),
+          borderRadius: BorderRadius.circular(kRadius),
+          borderSide: const BorderSide(color: kAccent, width: 1.0),
         ),
       ),
     );
@@ -145,39 +101,16 @@ class AuthButton extends StatelessWidget {
     required this.label,
     required this.onPressed,
     this.isLoading = false,
-    this.color = const Color(0xFF6366F1),
+    this.color = kAccent,
   });
 
   @override
   Widget build(BuildContext context) {
-    return ElevatedButton(
-      onPressed: isLoading ? null : onPressed,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: color,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 18),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        elevation: 0,
-      ),
-      child: isLoading
-          ? const SizedBox(
-              height: 24,
-              width: 24,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.5,
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-              ),
-            )
-          : Text(
-              label,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.5,
-              ),
-            ),
+    return TechnicalButton(
+      label: label,
+      onTap: onPressed,
+      isLoading: isLoading,
+      color: color,
     );
   }
 }

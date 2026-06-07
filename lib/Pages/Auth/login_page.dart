@@ -3,6 +3,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/auth_widgets.dart';
+import 'package:qcurobotics_management_app/Widgets/design_system.dart';
 
 class LoginPage extends StatefulWidget {
   final VoidCallback? onRegister;
@@ -60,7 +61,6 @@ class _LoginPageState extends State<LoginPage> {
 
       final googleUser = await googleSignIn.signIn();
       if (googleUser == null) {
-        // User canceled the sign-in flow
         return;
       }
       
@@ -88,8 +88,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      backgroundColor: const Color(0xFF0B1020),
+      backgroundColor: kBackground,
       body: Stack(
         children: [
           const AuthBackground(),
@@ -101,26 +100,34 @@ class _LoginPageState extends State<LoginPage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Icon(Icons.hub_rounded, size: 72, color: Color(0xFF6366F1)),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: kAccent.withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: kAccent.withValues(alpha: 0.2)),
+                      ),
+                      child: const Icon(Icons.hub_outlined, size: 48, color: kAccent),
+                    ),
                     const SizedBox(height: 24),
                     const Text(
-                      'Welcome Back',
+                      'Login',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        fontSize: 32,
+                        fontSize: 24,
                         fontWeight: FontWeight.w900,
                         color: Colors.white,
-                        letterSpacing: -0.5,
+                        letterSpacing: 1.0,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Sign in to manage QCU Robotics',
+                      'Welcome Back',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        fontSize: 15,
-                        color: Colors.white.withValues(alpha: 0.6),
-                        fontWeight: FontWeight.w500,
+                        fontSize: 12,
+                        color: Colors.white.withValues(alpha: 0.3),
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 48),
@@ -145,17 +152,14 @@ class _LoginPageState extends State<LoginPage> {
                           Align(
                             alignment: Alignment.centerRight,
                             child: TextButton(
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Forgot Password not implemented yet'))
-                                );
-                              },
+                              onPressed: () {},
                               style: TextButton.styleFrom(
-                                foregroundColor: const Color(0xFF10B981),
+                                foregroundColor: kAccent.withValues(alpha: 0.5),
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 minimumSize: Size.zero,
                               ),
-                              child: const Text('Forgot password?', style: TextStyle(fontWeight: FontWeight.w600)),
+                              child: const Text('Forgot Password?', 
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
                             ),
                           ),
                           const SizedBox(height: 24),
@@ -164,39 +168,26 @@ class _LoginPageState extends State<LoginPage> {
                             onPressed: _signIn,
                             isLoading: _isLoading,
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 24),
                           Row(
                             children: [
-                              Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.1))),
+                              Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.05))),
                               Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 16),
                                 child: Text(
-                                  'OR',
-                                  style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12, fontWeight: FontWeight.w600),
+                                  'Or sign in with',
+                                  style: TextStyle(color: Colors.white.withValues(alpha: 0.2), fontSize: 10, fontWeight: FontWeight.w600),
                                 ),
                               ),
-                              Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.1))),
+                              Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.05))),
                             ],
                           ),
-                          const SizedBox(height: 16),
-                          OutlinedButton.icon(
-                            icon: Image.network(
-                              'https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg',
-                              height: 22,
-                              errorBuilder: (context, error, stackTrace) => const Icon(Icons.g_mobiledata, color: Colors.white),
-                            ),
-                            onPressed: _isLoading ? null : _signInWithGoogle,
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                              foregroundColor: Colors.white,
-                              backgroundColor: Colors.white.withValues(alpha: 0.03),
-                            ),
-                            label: const Text(
-                              'Continue with Google',
-                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: 0.3),
-                            ),
+                          const SizedBox(height: 24),
+                          TechnicalButton(
+                            label: 'Google',
+                            color: Colors.white,
+                            onTap: _isLoading ? () {} : _signInWithGoogle,
+                            icon: Icons.g_mobiledata,
                           ),
                         ],
                       ),
@@ -206,16 +197,20 @@ class _LoginPageState extends State<LoginPage> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          'Don\'t have an account?',
-                          style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+                          "Don't have an account?",
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.3),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         TextButton(
                           onPressed: widget.onRegister,
                           style: TextButton.styleFrom(
-                            foregroundColor: const Color(0xFF6366F1),
-                            textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                            foregroundColor: kAccent,
+                            textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
                           ),
-                          child: const Text('Register'),
+                          child: const Text('Create Account'),
                         ),
                       ],
                     ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/auth_widgets.dart';
+import 'package:qcurobotics_management_app/Widgets/design_system.dart';
 
 class WelcomePage extends StatelessWidget {
   final VoidCallback? onGoToDashboard;
@@ -9,8 +10,7 @@ class WelcomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      backgroundColor: const Color(0xFF0B1020),
+      backgroundColor: kBackground,
       body: Stack(
         children: [
           const AuthBackground(),
@@ -23,30 +23,33 @@ class WelcomePage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF10B981),
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: kAccent.withValues(alpha: 0.1),
                         shape: BoxShape.circle,
+                        border: Border.all(color: kAccent.withValues(alpha: 0.2)),
                       ),
-                      child: const Icon(Icons.check_rounded, size: 64, color: Colors.white),
+                      child: const Icon(Icons.rocket_launch_outlined, size: 48, color: kAccent),
                     ),
                     const SizedBox(height: 32),
                     const Text(
-                      'Welcome to QCU Robotics!',
+                      'Welcome!',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 28,
                         fontWeight: FontWeight.w900,
+                        letterSpacing: 1.0,
                       ),
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'Your account has been created successfully. You\'re now part of the QCU Robotics team!',
+                      'Your account is ready. You can now access the QCU Robotics management dashboard.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.6),
-                        fontSize: 15,
+                        color: Colors.white.withValues(alpha: 0.4),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
                         height: 1.5,
                       ),
                     ),

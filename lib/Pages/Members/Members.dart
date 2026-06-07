@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:qcurobotics_management_app/Services/cache_service.dart';
+import 'package:qcurobotics_management_app/Services/storage_service.dart';
+import 'package:qcurobotics_management_app/Widgets/design_system.dart';
 import 'package:qcurobotics_management_app/Widgets/loading_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -20,6 +22,7 @@ class _MembersState extends State<Members> {
   static const Duration _membersCacheDuration = Duration(hours: 1);
 
   late Future<_MembersPageData> _membersFuture;
+  Key _futureKey = UniqueKey();
   int? _selectedSeasonId;
   bool _isEditingSelectedSeason = false;
 
@@ -30,41 +33,31 @@ class _MembersState extends State<Members> {
   }
 
   Future<_MembersPageData> _loadMembersData() async {
-    debugPrint('[_loadMembersData] checking cache...');
-    
-    // 1. Try to load from cache first
     final cachedMap = await _cache.getData(_membersCacheKey);
     if (cachedMap != null) {
       try {
         final cachedData = _MembersPageData.fromMap(cachedMap);
-        debugPrint('[_loadMembersData] cache hit');
-        
-        // Return cache but trigger a background refresh if stale
         _cache.getData(_membersCacheKey, maxAge: _membersCacheDuration).then((fresh) {
           if (fresh == null) {
-            debugPrint('[_loadMembersData] cache stale, refreshing in background...');
             _fetchAndCacheMembers().then((freshData) {
               if (mounted) {
                 setState(() {
                   _membersFuture = Future.value(freshData);
+                  _futureKey = UniqueKey();
                 });
               }
             });
           }
         });
-        
         return cachedData;
       } catch (e) {
         debugPrint('[_loadMembersData] cache error: $e');
       }
     }
-
-    // 2. No cache or error, fetch from network
     return _fetchAndCacheMembers();
   }
 
   Future<_MembersPageData> _fetchAndCacheMembers() async {
-    debugPrint('[_fetchAndCacheMembers] fetching data...');
     final results = await Future.wait([
       _supabase.from('member_team_seasons').select('''
             id,
@@ -90,45 +83,21 @@ class _MembersState extends State<Members> {
           '''),
       _supabase.from('member_roles').select('member_id, season_id, role:roles(role_name)'),
       _supabase.from('members').select(),
-      _supabase
-          .from('media_team')
-          .select('id, name, position, image_url, is_active'),
+      _supabase.from('media_team').select('id, name, position, image_url, is_active'),
       _supabase.from('Coaches').select('id, name, image_url, is_active'),
-      _supabase
-          .from('teams')
-          .select('id, team_name, team_number, team_code, is_active, season_id')
-          .order('team_number'),
+      _supabase.from('teams').select('id, team_name, team_number, team_code, is_active, season_id').order('team_number'),
       _supabase.from('seasons').select('id, season_name').order('id'),
       _supabase.from('roles').select('id, role_name').order('role_name'),
     ]);
-    debugPrint('[_fetchAndCacheMembers] fetched ${results.length} result sets');
-    debugPrint('[_fetchAndCacheMembers] results[4] (coaches) raw: ${results[4]}');
-    debugPrint('[_fetchAndCacheMembers] results[4] type: ${results[4].runtimeType}');
 
     final assignments = _asMapList(results[0]);
-    debugPrint('[_fetchAndCacheMembers] assignments count: ${assignments.length}');
     final roleRows = _asMapList(results[1]);
     final members = _asMapList(results[2]);
-    debugPrint('[_fetchAndCacheMembers] members count: ${members.length}');
-    final mediaTeam = _asMapList(results[3])
-      ..sort(
-        (a, b) => _stringValue(a['name']).compareTo(_stringValue(b['name'])),
-      );
-    debugPrint('[_fetchAndCacheMembers] mediaTeam count: ${mediaTeam.length}');
-    final coaches = _asMapList(results[4])
-      ..sort(
-        (a, b) => _stringValue(a['name']).compareTo(_stringValue(b['name'])),
-      );
-    debugPrint('[_fetchAndCacheMembers] coaches count: ${coaches.length}');
-    final teams = _asMapList(
-      results[5],
-    ).map(_TeamOption.fromRow).where((team) => team.id != null).toList();
-    final seasons = _asMapList(
-      results[6],
-    ).map(_SeasonOption.fromRow).where((season) => season.id != null).toList();
-    final roles = _asMapList(
-      results[7],
-    ).map(_RoleOption.fromRow).where((role) => role.id != null).toList();
+    final mediaTeam = _asMapList(results[3])..sort((a, b) => _stringValue(a['name']).compareTo(_stringValue(b['name'])));
+    final coaches = _asMapList(results[4])..sort((a, b) => _stringValue(a['name']).compareTo(_stringValue(b['name'])));
+    final teams = _asMapList(results[5]).map(_TeamOption.fromRow).where((t) => t.id != null).toList();
+    final seasons = _asMapList(results[6]).map(_SeasonOption.fromRow).where((s) => s.id != null).toList();
+    final roles = _asMapList(results[7]).map(_RoleOption.fromRow).where((r) => r.id != null).toList();
 
     final rolesByMemberSeason = <String, List<String>>{};
     for (final row in roleRows) {
@@ -136,7 +105,6 @@ class _MembersState extends State<Members> {
       final seasonId = _intValue(row['season_id']);
       final role = row['role'];
       if (memberId == null || seasonId == null || role is! Map) continue;
-
       final roleName = _stringValue(role['role_name']);
       if (roleName.isEmpty) continue;
       final key = '$memberId:$seasonId';
@@ -155,315 +123,106 @@ class _MembersState extends State<Members> {
       final seasonId = _intValue(seasonMap['id']);
       if (memberId == null || teamId == null || seasonId == null) continue;
 
-      final season = seasonsById.putIfAbsent(
-        seasonId,
-        () => _SeasonGroup(
-          id: seasonId,
-          name: _displaySeasonName(seasonMap, seasonId),
-          teamsById: <int, _TeamGroup>{},
-        ),
-      );
-
-      final team = season.teamsById.putIfAbsent(
-        teamId,
-        () => _TeamGroup(
-          id: teamId,
-          name: _displayTeamName(teamMap),
-          number: _intValue(teamMap['team_number']) ?? 0,
-          code: _stringValue(teamMap['team_code']),
-          players: <_TeamPlayer>[],
-        ),
-      );
-
-      team.players.add(
-        _TeamPlayer(
-          id: memberId,
-          assignmentId: _intValue(row['id']),
-          teamId: teamId,
-          seasonId: seasonId,
-          name: _stringValue(memberMap['name']),
-          imageUrl: _nullableString(memberMap['profile_image_url']),
-          isActive: memberMap['is_active'] == true,
-          isGraduated: memberMap['is_graduated'] == true,
-          roles: rolesByMemberSeason['$memberId:$seasonId'] ?? const <String>[],
-        ),
-      );
+      final season = seasonsById.putIfAbsent(seasonId, () => _SeasonGroup(id: seasonId, name: _displaySeasonName(seasonMap, seasonId), teamsById: <int, _TeamGroup>{}));
+      final team = season.teamsById.putIfAbsent(teamId, () => _TeamGroup(id: teamId, name: _displayTeamName(teamMap), number: _intValue(teamMap['team_number']) ?? 0, code: _stringValue(teamMap['team_code']), players: <_TeamPlayer>[]));
+      team.players.add(_TeamPlayer(id: memberId, assignmentId: _intValue(row['id']), teamId: teamId, seasonId: seasonId, name: _stringValue(memberMap['name']), imageUrl: _nullableString(memberMap['profile_image_url']), isActive: memberMap['is_active'] == true, isGraduated: memberMap['is_graduated'] == true, roles: rolesByMemberSeason['$memberId:$seasonId'] ?? const <String>[]));
     }
 
-    final seasonGroups = seasonsById.values.toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
-    for (final season in seasonGroups) {
-      for (final team in season.teamsById.values) {
-        team.players.sort((a, b) => a.name.compareTo(b.name));
+    final seasonGroups = seasonsById.values.toList()..sort((a, b) => a.name.compareTo(b.name));
+    for (final s in seasonGroups) {
+      for (final t in s.teamsById.values) {
+        t.players.sort((a, b) => a.name.compareTo(b.name));
       }
     }
 
-    final totalPlayers = seasonGroups.fold<int>(
-      0,
-      (sum, s) => sum + s.teamsById.values.fold<int>(0, (tSum, t) => tSum + t.players.length),
-    );
-    debugPrint(
-      '[_fetchAndCacheMembers] built ${seasonGroups.length} seasons, $totalPlayers players',
-    );
-
-    final data = _MembersPageData(
-      seasons: seasonGroups,
-      members: members,
-      mediaTeam: mediaTeam,
-      coaches: coaches,
-      teams: teams,
-      seasonOptions: seasons,
-      roles: roles,
-    );
-    debugPrint('[_fetchAndCacheMembers] _MembersPageData coaches count: ${data.coaches.length}');
-
-    // Save to persistent cache
+    final data = _MembersPageData(seasons: seasonGroups, members: members, mediaTeam: mediaTeam, coaches: coaches, teams: teams, seasonOptions: seasons, roles: roles);
     await _cache.saveData(_membersCacheKey, data.toMap());
-
     return data;
   }
 
   Future<void> _refresh() async {
-    debugPrint('[_refresh] called');
+    await _cache.clearData(_membersCacheKey);
     final future = _fetchAndCacheMembers();
     setState(() {
       _membersFuture = future;
+      _futureKey = UniqueKey();
     });
     await future;
-    debugPrint('[_refresh] complete');
   }
 
   Future<void> _reload() async {
     if (!mounted) return;
-    debugPrint('[_reload] called');
+    await _cache.clearData(_membersCacheKey);
     final future = _fetchAndCacheMembers();
     setState(() {
       _membersFuture = future;
+      _futureKey = UniqueKey();
     });
-    debugPrint('[_reload] complete');
+    await future;
   }
 
-  Future<void> _openTeamPlayerForm({
-    required _MembersPageData data,
-    _TeamPlayer? player,
-  }) async {
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _TeamPlayerFormSheet(
-        player: player,
-        teams: data.teams,
-        seasons: data.seasonOptions,
-        roles: data.roles,
-      ),
-    );
+  Future<void> _openTeamPlayerForm({required _MembersPageData data, _TeamPlayer? player}) async {
+    final saved = await showModalBottomSheet<bool>(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => _TeamPlayerFormSheet(player: player, teams: data.teams, seasons: data.seasonOptions, roles: data.roles));
     if (saved == true) await _reload();
   }
 
   Future<void> _openGenericMemberForm({Map<String, dynamic>? row}) async {
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _GenericMemberFormSheet(row: row),
-    );
+    final saved = await showModalBottomSheet<bool>(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => _GenericMemberFormSheet(row: row));
     if (saved == true) await _reload();
   }
 
   Future<void> _openMediaMemberForm({Map<String, dynamic>? row}) async {
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _MediaMemberFormSheet(row: row),
-    );
+    final saved = await showModalBottomSheet<bool>(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => _MediaMemberFormSheet(row: row));
     if (saved == true) await _reload();
   }
 
   Future<void> _openCoachForm({Map<String, dynamic>? row}) async {
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _CoachFormSheet(row: row),
-    );
+    final saved = await showModalBottomSheet<bool>(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => _CoachFormSheet(row: row));
     if (saved == true) await _reload();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0B1020),
+      backgroundColor: kBackground,
       body: Stack(
         children: [
-          const _MembersBackground(),
+          const TechnicalGridBackground(),
           SafeArea(
             child: FutureBuilder<_MembersPageData>(
+              key: _futureKey,
               future: _membersFuture,
               builder: (context, snapshot) {
                 final data = snapshot.data;
-                final selectedSeason = data == null
-                    ? null
-                    : _selectedSeason(data);
+                final selectedSeason = data == null ? null : _selectedSeason(data);
                 return RefreshIndicator(
                   onRefresh: _refresh,
-                  backgroundColor: const Color(0xFF111827),
-                  color: const Color(0xFF6366F1),
+                  backgroundColor: kSurface,
+                  color: kAccent,
                   child: CustomScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-                          child: _MembersTopBar(
-                            isLoading:
-                                snapshot.connectionState ==
-                                ConnectionState.waiting,
-                          ),
-                        ),
-                      ),
-                      if (snapshot.hasError)
-                        SliverFillRemaining(
-                          hasScrollBody: false,
-                          child: _ErrorState(
-                            message: snapshot.error.toString(),
-                            onRetry: _refresh,
-                          ),
-                        )
-                      else if (data == null)
-                        const SliverFillRemaining(
-                          hasScrollBody: false,
-                          child: MembersSkeleton(),
-                        )
+                      SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(kPadding), child: _MembersTopBar(isLoading: snapshot.connectionState == ConnectionState.waiting))),
+                      if (snapshot.hasError) SliverFillRemaining(hasScrollBody: false, child: _ErrorState(message: snapshot.error.toString(), onRetry: _refresh))
+                      else if (data == null) const SliverFillRemaining(hasScrollBody: false, child: MembersSkeleton())
                       else ...[
-                        SliverToBoxAdapter(
-                          child: _SectionHeader(
-                            label: 'Team Players',
-                            count: data.playerCount,
-                            color: const Color(0xFF6366F1),
-                            onAdd: () => _openTeamPlayerForm(data: data),
-                          ),
-                        ),
-                        if (data.seasons.isEmpty)
-                          const SliverToBoxAdapter(
-                            child: _EmptyState(text: 'No team players found.'),
-                          )
+                        const SliverToBoxAdapter(child: TechnicalSectionHeader(label: 'Team Members', color: Color(0xFF6366F1), topPadding: 0)),
+                        if (data.seasons.isEmpty) const SliverToBoxAdapter(child: _EmptyState(text: 'No members found.'))
                         else ...[
-                          SliverToBoxAdapter(
-                            child: _SeasonSelector(
-                              seasons: data.seasons,
-                              selectedSeasonId: selectedSeason?.id,
-                              onChanged: (seasonId) {
-                                if (seasonId == null) return;
-                                setState(() {
-                                  _selectedSeasonId = seasonId;
-                                  _isEditingSelectedSeason = false;
-                                });
-                              },
-                            ),
-                          ),
-                          if (selectedSeason == null)
-                            const SliverToBoxAdapter(
-                              child: _EmptyState(text: 'Select a season.'),
-                            )
-                          else
-                            SliverToBoxAdapter(
-                              child: _SeasonPanel(
-                                season: selectedSeason,
-                                isEditing: _isEditingSelectedSeason,
-                                onToggleEditing: () {
-                                  setState(
-                                    () => _isEditingSelectedSeason =
-                                        !_isEditingSelectedSeason,
-                                  );
-                                },
-                                onEditPlayer: (player) => _openTeamPlayerForm(
-                                  data: data,
-                                  player: player,
-                                ),
-                              ),
-                            ),
+                          SliverToBoxAdapter(child: _SeasonSelector(seasons: data.seasons, selectedSeasonId: selectedSeason?.id, onChanged: (id) { if (id == null) return; setState(() { _selectedSeasonId = id; _isEditingSelectedSeason = false; }); })),
+                          if (selectedSeason == null) const SliverToBoxAdapter(child: _EmptyState(text: 'Select a season.'))
+                          else SliverToBoxAdapter(child: _SeasonPanel(season: selectedSeason, isEditing: _isEditingSelectedSeason, onToggleEditing: () => setState(() => _isEditingSelectedSeason = !_isEditingSelectedSeason), onEditPlayer: (player) => _openTeamPlayerForm(data: data, player: player))),
                         ],
-                        SliverToBoxAdapter(
-                          child: _SectionHeader(
-                            label: 'Members',
-                            count: data.members.length,
-                            color: const Color(0xFF10B981),
-                            topPadding: 28,
-                            onAdd: _openGenericMemberForm,
-                          ),
-                        ),
-                        if (data.members.isEmpty)
-                          const SliverToBoxAdapter(
-                            child: _EmptyState(text: 'No members found.'),
-                          )
-                        else
-                          SliverList.builder(
-                            itemCount: data.members.length,
-                            itemBuilder: (context, index) {
-                              return _GenericMemberCard(
-                                row: data.members[index],
-                                onEdit: () => _openGenericMemberForm(
-                                  row: data.members[index],
-                                ),
-                              );
-                            },
-                          ),
-                        SliverToBoxAdapter(
-                          child: _SectionHeader(
-                            label: 'Media Team',
-                            count: data.mediaTeam.length,
-                            color: const Color(0xFFEC4899),
-                            topPadding: 28,
-                            onAdd: _openMediaMemberForm,
-                          ),
-                        ),
-                        if (data.mediaTeam.isEmpty)
-                          const SliverToBoxAdapter(
-                            child: _EmptyState(text: 'No media team found.'),
-                          )
-                        else
-                          SliverList.builder(
-                            itemCount: data.mediaTeam.length,
-                            itemBuilder: (context, index) {
-                              return _MediaMemberCard(
-                                row: data.mediaTeam[index],
-                                onEdit: () => _openMediaMemberForm(
-                                  row: data.mediaTeam[index],
-                                ),
-                              );
-                            },
-                          ),
-                        SliverToBoxAdapter(
-                          child: Builder(builder: (context) {
-                            debugPrint('[_build] coaches count: ${data.coaches.length}');
-                            return _SectionHeader(
-                              label: 'Coaches',
-                              count: data.coaches.length,
-                              color: const Color(0xFFF59E0B),
-                              topPadding: 28,
-                              onAdd: _openCoachForm,
-                            );
-                          }),
-                        ),
-                        if (data.coaches.isEmpty)
-                          const SliverToBoxAdapter(
-                            child: _EmptyState(text: 'No coaches found.'),
-                          )
-                        else
-                          SliverList.builder(
-                            itemCount: data.coaches.length,
-                            itemBuilder: (context, index) {
-                              return _CoachCard(
-                                row: data.coaches[index],
-                                onEdit: () => _openCoachForm(
-                                  row: data.coaches[index],
-                                ),
-                              );
-                            },
-                          ),
-                        const SliverToBoxAdapter(child: SizedBox(height: 36)),
+                        const SliverToBoxAdapter(child: TechnicalSectionHeader(label: 'Members', color: Color(0xFF10B981), topPadding: 24)),
+                        if (data.members.isEmpty) const SliverToBoxAdapter(child: _EmptyState(text: 'No personnel found.'))
+                        else SliverList.builder(itemCount: data.members.length, itemBuilder: (context, index) => _GenericMemberCard(row: data.members[index], onEdit: () => _openGenericMemberForm(row: data.members[index]))),
+                        const SliverToBoxAdapter(child: TechnicalSectionHeader(label: 'Media Team', color: Color(0xFFEC4899), topPadding: 24)),
+                        if (data.mediaTeam.isEmpty) const SliverToBoxAdapter(child: _EmptyState(text: 'No media team found.'))
+                        else SliverList.builder(itemCount: data.mediaTeam.length, itemBuilder: (context, index) => _MediaMemberCard(row: data.mediaTeam[index], onEdit: () => _openMediaMemberForm(row: data.mediaTeam[index]))),
+                        const SliverToBoxAdapter(child: TechnicalSectionHeader(label: 'Coaches', color: Color(0xFFF59E0B), topPadding: 24)),
+                        if (data.coaches.isEmpty) const SliverToBoxAdapter(child: _EmptyState(text: 'No coaches found.'))
+                        else SliverList.builder(itemCount: data.coaches.length, itemBuilder: (context, index) => _CoachCard(row: data.coaches[index], onEdit: () => _openCoachForm(row: data.coaches[index]))),
+                        const SliverToBoxAdapter(child: SizedBox(height: 100)),
                       ],
                     ],
                   ),
@@ -473,19 +232,23 @@ class _MembersState extends State<Members> {
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: kAccent,
+        foregroundColor: kBackground,
+        onPressed: () {}, 
+        child: const Icon(Icons.add),
+      ),
     );
   }
 
   _SeasonGroup? _selectedSeason(_MembersPageData data) {
     if (data.seasons.isEmpty) return null;
-
     final selectedId = _selectedSeasonId;
     if (selectedId != null) {
-      for (final season in data.seasons) {
-        if (season.id == selectedId) return season;
+      for (final s in data.seasons) {
+        if (s.id == selectedId) return s;
       }
     }
-
     return data.seasons.first;
   }
 }
@@ -499,45 +262,21 @@ class _MembersPageData {
   final List<_SeasonOption> seasonOptions;
   final List<_RoleOption> roles;
 
-  const _MembersPageData({
-    required this.seasons,
-    required this.members,
-    required this.mediaTeam,
-    required this.coaches,
-    required this.teams,
-    required this.seasonOptions,
-    required this.roles,
-  });
+  const _MembersPageData({required this.seasons, required this.members, required this.mediaTeam, required this.coaches, required this.teams, required this.seasonOptions, required this.roles});
 
   Map<String, dynamic> toMap() {
-    return {
-      'seasons': seasons.map((s) => s.toMap()).toList(),
-      'members': members,
-      'mediaTeam': mediaTeam,
-      'coaches': coaches,
-      'teams': teams.map((t) => t.toMap()).toList(),
-      'seasonOptions': seasonOptions.map((s) => s.toMap()).toList(),
-      'roles': roles.map((r) => r.toMap()).toList(),
-    };
+    return {'seasons': seasons.map((s) => s.toMap()).toList(), 'members': members, 'mediaTeam': mediaTeam, 'coaches': coaches, 'teams': teams.map((t) => t.toMap()).toList(), 'seasonOptions': seasonOptions.map((s) => s.toMap()).toList(), 'roles': roles.map((r) => r.toMap()).toList()};
   }
 
   factory _MembersPageData.fromMap(Map<String, dynamic> map) {
-    return _MembersPageData(
-      seasons: (map['seasons'] as List).map((s) => _SeasonGroup.fromMap(s)).toList(),
-      members: List<Map<String, dynamic>>.from(map['members']),
-      mediaTeam: List<Map<String, dynamic>>.from(map['mediaTeam']),
-      coaches: List<Map<String, dynamic>>.from(map['coaches'] ?? []),
-      teams: (map['teams'] as List).map((t) => _TeamOption.fromMap(t)).toList(),
-      seasonOptions: (map['seasonOptions'] as List).map((s) => _SeasonOption.fromMap(s)).toList(),
-      roles: (map['roles'] as List).map((r) => _RoleOption.fromMap(r)).toList(),
-    );
+    return _MembersPageData(seasons: (map['seasons'] as List).map((s) => _SeasonGroup.fromMap(s)).toList(), members: List<Map<String, dynamic>>.from(map['members']), mediaTeam: List<Map<String, dynamic>>.from(map['mediaTeam']), coaches: List<Map<String, dynamic>>.from(map['coaches'] ?? []), teams: (map['teams'] as List).map((t) => _TeamOption.fromMap(t)).toList(), seasonOptions: (map['seasonOptions'] as List).map((s) => _SeasonOption.fromMap(s)).toList(), roles: (map['roles'] as List).map((r) => _RoleOption.fromMap(r)).toList());
   }
 
   int get playerCount {
     var total = 0;
-    for (final season in seasons) {
-      for (final team in season.teamsById.values) {
-        total += team.players.length;
+    for (final s in seasons) {
+      for (final t in s.teamsById.values) {
+        total += t.players.length;
       }
     }
     return total;
@@ -548,39 +287,17 @@ class _SeasonGroup {
   final int id;
   final String name;
   final Map<int, _TeamGroup> teamsById;
+  const _SeasonGroup({required this.id, required this.name, required this.teamsById});
 
-  const _SeasonGroup({
-    required this.id,
-    required this.name,
-    required this.teamsById,
-  });
-
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'name': name,
-      'teamsById': teamsById.map((k, v) => MapEntry(k.toString(), v.toMap())),
-    };
-  }
-
-  factory _SeasonGroup.fromMap(Map<String, dynamic> map) {
-    return _SeasonGroup(
-      id: map['id'],
-      name: map['name'],
-      teamsById: (map['teamsById'] as Map).map(
-        (k, v) => MapEntry(int.parse(k), _TeamGroup.fromMap(v)),
-      ),
-    );
-  }
-
+  Map<String, dynamic> toMap() => {'id': id, 'name': name, 'teamsById': teamsById.map((k, v) => MapEntry(k.toString(), v.toMap()))};
+  factory _SeasonGroup.fromMap(Map<String, dynamic> map) => _SeasonGroup(id: map['id'], name: map['name'], teamsById: (map['teamsById'] as Map).map((k, v) => MapEntry(int.parse(k), _TeamGroup.fromMap(v))));
   List<_TeamGroup> get teams {
-    final teams = teamsById.values.toList()
-      ..sort((a, b) {
-        final numberCompare = a.number.compareTo(b.number);
-        if (numberCompare != 0) return numberCompare;
-        return a.name.compareTo(b.name);
-      });
-    return teams;
+    final list = teamsById.values.toList()..sort((a, b) {
+      final n = a.number.compareTo(b.number);
+      if (n != 0) return n;
+      return a.name.compareTo(b.name);
+    });
+    return list;
   }
 }
 
@@ -590,34 +307,10 @@ class _TeamGroup {
   final int number;
   final String code;
   final List<_TeamPlayer> players;
+  const _TeamGroup({required this.id, required this.name, required this.number, required this.code, required this.players});
 
-  const _TeamGroup({
-    required this.id,
-    required this.name,
-    required this.number,
-    required this.code,
-    required this.players,
-  });
-
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'name': name,
-      'number': number,
-      'code': code,
-      'players': players.map((p) => p.toMap()).toList(),
-    };
-  }
-
-  factory _TeamGroup.fromMap(Map<String, dynamic> map) {
-    return _TeamGroup(
-      id: map['id'],
-      name: map['name'],
-      number: map['number'],
-      code: map['code'],
-      players: (map['players'] as List).map((p) => _TeamPlayer.fromMap(p)).toList(),
-    );
-  }
+  Map<String, dynamic> toMap() => {'id': id, 'name': name, 'number': number, 'code': code, 'players': players.map((p) => p.toMap()).toList()};
+  factory _TeamGroup.fromMap(Map<String, dynamic> map) => _TeamGroup(id: map['id'], name: map['name'], number: map['number'], code: map['code'], players: (map['players'] as List).map((p) => _TeamPlayer.fromMap(p)).toList());
 }
 
 class _TeamPlayer {
@@ -630,109 +323,37 @@ class _TeamPlayer {
   final bool isActive;
   final bool isGraduated;
   final List<String> roles;
+  const _TeamPlayer({required this.id, this.assignmentId, required this.teamId, required this.seasonId, required this.name, this.imageUrl, required this.isActive, required this.isGraduated, required this.roles});
 
-  const _TeamPlayer({
-    required this.id,
-    required this.assignmentId,
-    required this.teamId,
-    required this.seasonId,
-    required this.name,
-    required this.imageUrl,
-    required this.isActive,
-    required this.isGraduated,
-    required this.roles,
-  });
-
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'assignmentId': assignmentId,
-      'teamId': teamId,
-      'seasonId': seasonId,
-      'name': name,
-      'imageUrl': imageUrl,
-      'isActive': isActive,
-      'isGraduated': isGraduated,
-      'roles': roles,
-    };
-  }
-
-  factory _TeamPlayer.fromMap(Map<String, dynamic> map) {
-    return _TeamPlayer(
-      id: map['id'],
-      assignmentId: map['assignmentId'],
-      teamId: map['teamId'],
-      seasonId: map['seasonId'],
-      name: map['name'],
-      imageUrl: map['imageUrl'],
-      isActive: map['isActive'],
-      isGraduated: map['isGraduated'],
-      roles: List<String>.from(map['roles']),
-    );
-  }
+  Map<String, dynamic> toMap() => {'id': id, 'assignmentId': assignmentId, 'teamId': teamId, 'seasonId': seasonId, 'name': name, 'imageUrl': imageUrl, 'isActive': isActive, 'isGraduated': isGraduated, 'roles': roles};
+  factory _TeamPlayer.fromMap(Map<String, dynamic> map) => _TeamPlayer(id: map['id'], assignmentId: map['assignmentId'], teamId: map['teamId'], seasonId: map['seasonId'], name: map['name'], imageUrl: map['imageUrl'], isActive: map['isActive'], isGraduated: map['isGraduated'], roles: List<String>.from(map['roles']));
 }
 
 class _TeamOption {
   final int? id;
   final String name;
   final int? seasonId;
+  const _TeamOption({this.id, required this.name, this.seasonId});
 
-  const _TeamOption({required this.id, required this.name, this.seasonId});
-
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'name': name,
-      'seasonId': seasonId,
-    };
-  }
-
-  factory _TeamOption.fromMap(Map<String, dynamic> map) {
-    return _TeamOption(
-      id: map['id'],
-      name: map['name'],
-      seasonId: map['seasonId'],
-    );
-  }
-
+  Map<String, dynamic> toMap() => {'id': id, 'name': name, 'seasonId': seasonId};
+  factory _TeamOption.fromMap(Map<String, dynamic> map) => _TeamOption(id: map['id'], name: map['name'], seasonId: map['seasonId']);
   factory _TeamOption.fromRow(Map<String, dynamic> row) {
     final id = _intValue(row['id']);
-    final number = _intValue(row['team_number']);
-    final code = _stringValue(row['team_code']);
+    final n = _intValue(row['team_number']);
+    final c = _stringValue(row['team_code']);
     final name = _displayTeamName(row);
-    final meta = <String>[
-      if (number != null) 'Team $number',
-      if (code.isNotEmpty) code,
-    ].join(' | ');
-
-    return _TeamOption(
-      id: id,
-      name: meta.isEmpty ? name : '$name ($meta)',
-      seasonId: _intValue(row['season_id']),
-    );
+    final meta = [if (n != null) 'Team $n', if (c.isNotEmpty) c].join(' | ');
+    return _TeamOption(id: id, name: meta.isEmpty ? name : '$name ($meta)', seasonId: _intValue(row['season_id']));
   }
 }
 
 class _SeasonOption {
   final int? id;
   final String name;
+  const _SeasonOption({this.id, required this.name});
 
-  const _SeasonOption({required this.id, required this.name});
-
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'name': name,
-    };
-  }
-
-  factory _SeasonOption.fromMap(Map<String, dynamic> map) {
-    return _SeasonOption(
-      id: map['id'],
-      name: map['name'],
-    );
-  }
-
+  Map<String, dynamic> toMap() => {'id': id, 'name': name};
+  factory _SeasonOption.fromMap(Map<String, dynamic> map) => _SeasonOption(id: map['id'], name: map['name']);
   factory _SeasonOption.fromRow(Map<String, dynamic> row) {
     final id = _intValue(row['id']);
     return _SeasonOption(id: id, name: _displaySeasonName(row, id ?? 0));
@@ -742,180 +363,31 @@ class _SeasonOption {
 class _RoleOption {
   final int? id;
   final String name;
+  const _RoleOption({this.id, required this.name});
 
-  const _RoleOption({required this.id, required this.name});
-
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'name': name,
-    };
-  }
-
-  factory _RoleOption.fromMap(Map<String, dynamic> map) {
-    return _RoleOption(
-      id: map['id'],
-      name: map['name'],
-    );
-  }
-
-  factory _RoleOption.fromRow(Map<String, dynamic> row) {
-    return _RoleOption(
-      id: _intValue(row['id']),
-      name: _stringValue(row['role_name']),
-    );
-  }
-}
-
-class _MembersBackground extends StatelessWidget {
-  const _MembersBackground();
-
-  @override
-  Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: RadialGradient(
-          center: Alignment.topRight,
-          radius: 1.1,
-          colors: [Color(0x246366F1), Color(0x1014B8A6), Color(0x000B1020)],
-          stops: [0, 0.46, 1],
-        ),
-      ),
-      child: SizedBox.expand(),
-    );
-  }
+  Map<String, dynamic> toMap() => {'id': id, 'name': name};
+  factory _RoleOption.fromMap(Map<String, dynamic> map) => _RoleOption(id: map['id'], name: map['name']);
+  factory _RoleOption.fromRow(Map<String, dynamic> row) => _RoleOption(id: _intValue(row['id']), name: _stringValue(row['role_name']));
 }
 
 class _MembersTopBar extends StatelessWidget {
   final bool isLoading;
-
   const _MembersTopBar({required this.isLoading});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _IconButton(
-          icon: Icons.arrow_back_rounded,
-          onTap: () => Navigator.of(context).pop(),
-        ),
-        const SizedBox(width: 14),
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Management',
-                style: TextStyle(
-                  color: Colors.white54,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Text(
-                'Members',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0,
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (isLoading)
-          const SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(
-              strokeWidth: 2.4,
-              color: Color(0xFF818CF8),
-            ),
-          ),
-      ],
-    );
+    return Row(children: [_IconButton(icon: Icons.arrow_back_ios_new_rounded, onTap: () => Navigator.of(context).pop()), const SizedBox(width: 14), const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('ADMIN', style: TextStyle(color: Colors.white24, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.0)), Text('Members', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: -0.5))])), if (isLoading) const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.0, color: kAccent))]);
   }
 }
 
 class _IconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
-
   const _IconButton({required this.icon, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: const Color(0xFF111827).withValues(alpha: 0.9),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-        ),
-        child: Icon(icon, color: Colors.white, size: 24),
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String label;
-  final int count;
-  final Color color;
-  final double topPadding;
-  final VoidCallback? onAdd;
-
-  const _SectionHeader({
-    required this.label,
-    required this.count,
-    required this.color,
-    this.topPadding = 18,
-    this.onAdd,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(24, topPadding, 24, 14),
-      child: Row(
-        children: [
-          Container(
-            width: 4,
-            height: 22,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-                color: Colors.white,
-                letterSpacing: 0,
-              ),
-            ),
-          ),
-          _CountPill(count: count, color: color),
-          if (onAdd != null) ...[
-            const SizedBox(width: 8),
-            _SmallIconButton(
-              icon: Icons.add_rounded,
-              color: color,
-              onTap: onAdd!,
-            ),
-          ],
-        ],
-      ),
-    );
+    return GestureDetector(onTap: onTap, behavior: HitTestBehavior.opaque, child: Container(width: 40, height: 40, decoration: BoxDecoration(color: kSurface.withValues(alpha: 0.5), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white.withValues(alpha: 0.05))), child: Icon(icon, color: Colors.white, size: 18)));
   }
 }
 
@@ -923,56 +395,22 @@ class _SmallIconButton extends StatelessWidget {
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
-
-  const _SmallIconButton({
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
+  const _SmallIconButton({required this.icon, required this.color, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.28)),
-        ),
-        child: Icon(icon, color: color, size: 20),
-      ),
-    );
+    return GestureDetector(onTap: onTap, behavior: HitTestBehavior.opaque, child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: color.withValues(alpha: 0.2))), child: Icon(icon, color: color, size: 16)));
   }
 }
 
 class _CountPill extends StatelessWidget {
   final int count;
   final Color color;
-
   const _CountPill({required this.count, required this.color});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
-      ),
-      child: Text(
-        count.toString(),
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
+    return Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: color.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(8), border: Border.all(color: color.withValues(alpha: 0.1))), child: Text(count.toString().padLeft(2, '0'), style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w900, fontFamily: 'Monospace')));
   }
 }
 
@@ -980,57 +418,11 @@ class _SeasonSelector extends StatelessWidget {
   final List<_SeasonGroup> seasons;
   final int? selectedSeasonId;
   final ValueChanged<int?> onChanged;
-
-  const _SeasonSelector({
-    required this.seasons,
-    required this.selectedSeasonId,
-    required this.onChanged,
-  });
+  const _SeasonSelector({required this.seasons, this.selectedSeasonId, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-      child: _GlassCard(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(
-          children: [
-            const Icon(
-              Icons.calendar_month_rounded,
-              color: Color(0xFF818CF8),
-              size: 22,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<int>(
-                  value: selectedSeasonId,
-                  isExpanded: true,
-                  dropdownColor: const Color(0xFF111827),
-                  iconEnabledColor: const Color(0xFF818CF8),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                  ),
-                  items: [
-                    for (final season in seasons)
-                      DropdownMenuItem(
-                        value: season.id,
-                        child: Text(
-                          season.name,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                  ],
-                  onChanged: onChanged,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    return Padding(padding: const EdgeInsets.fromLTRB(kPadding, 0, kPadding, 14), child: TechnicalCard(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2), child: Row(children: [const Icon(Icons.calendar_view_day_outlined, color: Color(0xFF6366F1), size: 18), const SizedBox(width: 12), Expanded(child: DropdownButtonHideUnderline(child: DropdownButton<int>(value: selectedSeasonId, isExpanded: true, dropdownColor: kSurface, iconEnabledColor: const Color(0xFF6366F1), style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800), items: [for (final s in seasons) DropdownMenuItem(value: s.id, child: Text(s.name.toUpperCase(), overflow: TextOverflow.ellipsis))], onChanged: onChanged)))])));
   }
 }
 
@@ -1039,63 +431,11 @@ class _SeasonPanel extends StatelessWidget {
   final bool isEditing;
   final VoidCallback onToggleEditing;
   final ValueChanged<_TeamPlayer> onEditPlayer;
-
-  const _SeasonPanel({
-    required this.season,
-    required this.isEditing,
-    required this.onToggleEditing,
-    required this.onEditPlayer,
-  });
+  const _SeasonPanel({required this.season, required this.isEditing, required this.onToggleEditing, required this.onEditPlayer});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-      child: _GlassCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(
-                  Icons.calendar_month_rounded,
-                  color: Color(0xFF818CF8),
-                  size: 21,
-                ),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Text(
-                    season.name,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0,
-                    ),
-                  ),
-                ),
-                _SmallIconButton(
-                  icon: isEditing ? Icons.check_rounded : Icons.edit_rounded,
-                  color: isEditing
-                      ? const Color(0xFF10B981)
-                      : const Color(0xFF818CF8),
-                  onTap: onToggleEditing,
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            for (final team in season.teams) ...[
-              _TeamPanel(
-                team: team,
-                showEditActions: isEditing,
-                onEditPlayer: onEditPlayer,
-              ),
-              if (team != season.teams.last) const SizedBox(height: 12),
-            ],
-          ],
-        ),
-      ),
-    );
+    return Padding(padding: const EdgeInsets.fromLTRB(kPadding, 0, kPadding, 14), child: TechnicalCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [const Icon(Icons.layers_outlined, color: Color(0xFF6366F1), size: 18), const SizedBox(width: 10), Expanded(child: Text(season.name.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900, letterSpacing: 1.0))), _SmallIconButton(icon: isEditing ? Icons.done_all_rounded : Icons.edit_outlined, color: isEditing ? kAccent : const Color(0xFF6366F1), onTap: onToggleEditing)]), const SizedBox(height: 16), for (final t in season.teams) ...[_TeamPanel(team: t, showEditActions: isEditing, onEditPlayer: onEditPlayer), if (t != season.teams.last) const SizedBox(height: 12)]])));
   }
 }
 
@@ -1103,82 +443,11 @@ class _TeamPanel extends StatelessWidget {
   final _TeamGroup team;
   final bool showEditActions;
   final ValueChanged<_TeamPlayer> onEditPlayer;
-
-  const _TeamPanel({
-    required this.team,
-    required this.showEditActions,
-    required this.onEditPlayer,
-  });
+  const _TeamPanel({required this.team, required this.showEditActions, required this.onEditPlayer});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.035),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(13),
-                ),
-                child: const Icon(
-                  Icons.hub_rounded,
-                  color: Color(0xFF34D399),
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      team.name,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    Text(
-                      _teamMeta(team),
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.48),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              _CountPill(
-                count: team.players.length,
-                color: const Color(0xFF34D399),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          for (final player in team.players) ...[
-            _PlayerTile(
-              player: player,
-              showEditAction: showEditActions,
-              onEdit: () => onEditPlayer(player),
-            ),
-            if (player != team.players.last) const SizedBox(height: 9),
-          ],
-        ],
-      ),
-    );
+    return Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: kBackground.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.white.withValues(alpha: 0.05))), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [Container(width: 32, height: 32, decoration: BoxDecoration(color: const Color(0xFF10B981).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.hub_outlined, color: Color(0xFF34D399), size: 16)), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(team.name.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900)), Text(_teamMeta(team), style: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 10, fontWeight: FontWeight.w700))])), _CountPill(count: team.players.length, color: const Color(0xFF34D399))]), const SizedBox(height: 12), for (final p in team.players) ...[_PlayerTile(player: p, showEditAction: showEditActions, onEdit: () => onEditPlayer(p)), if (p != team.players.last) const SizedBox(height: 9)]]));
   }
 }
 
@@ -1186,299 +455,54 @@ class _PlayerTile extends StatelessWidget {
   final _TeamPlayer player;
   final bool showEditAction;
   final VoidCallback onEdit;
-
-  const _PlayerTile({
-    required this.player,
-    required this.showEditAction,
-    required this.onEdit,
-  });
+  const _PlayerTile({required this.player, required this.showEditAction, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _Avatar(imageUrl: player.imageUrl, name: player.name, size: 42),
-        const SizedBox(width: 11),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      player.name.isEmpty ? 'Unnamed Player' : player.name,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  if (player.isGraduated)
-                    const _StatusPill(
-                      label: 'Graduated',
-                      color: Color(0xFFF59E0B),
-                    )
-                  else if (player.isActive)
-                    const _StatusPill(
-                      label: 'Active',
-                      color: Color(0xFF10B981),
-                    ),
-                  if (showEditAction) ...[
-                    const SizedBox(width: 6),
-                    _SmallIconButton(
-                      icon: Icons.edit_rounded,
-                      color: const Color(0xFF818CF8),
-                      onTap: onEdit,
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  if (player.roles.isEmpty)
-                    const _RolePill(label: 'No role')
-                  else
-                    for (final role in player.roles) _RolePill(label: role),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [_Avatar(imageUrl: player.imageUrl, name: player.name, size: 36), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [Expanded(child: Text(player.name.isEmpty ? 'UNNAMED MEMBER' : player.name.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800))), if (player.isGraduated) const _StatusPill(label: 'OFFLINE', color: Color(0xFFF59E0B)) else if (player.isActive) const _StatusPill(label: 'ACTIVE', color: Color(0xFF10B981)), if (showEditAction) ...[const SizedBox(width: 6), _SmallIconButton(icon: Icons.edit_outlined, color: const Color(0xFF6366F1), onTap: onEdit)]]), const SizedBox(height: 4), Wrap(spacing: 4, runSpacing: 4, children: [if (player.roles.isEmpty) const _RolePill(label: 'UNASSIGNED') else for (final r in player.roles) _RolePill(label: r.toUpperCase())])]))]);
   }
 }
 
 class _GenericMemberCard extends StatelessWidget {
   final Map<String, dynamic> row;
   final VoidCallback onEdit;
-
   const _GenericMemberCard({required this.row, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
     final name = _displayGenericName(row);
-    final subtitle = _displayGenericSubtitle(row);
-    final imageUrl = _nullableString(
-      row['profile_image_url'] ?? row['image_url'] ?? row['avatar_url'],
-    );
-    final isActive = row['is_active'] == true;
-    final isGraduated = row['is_graduated'] == true;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-      child: _GlassCard(
-        padding: const EdgeInsets.all(13),
-        child: Row(
-          children: [
-            _Avatar(imageUrl: imageUrl, name: name, size: 44),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          name,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                      if (isGraduated)
-                        const _StatusPill(
-                          label: 'Graduated',
-                          color: Color(0xFFF59E0B),
-                        )
-                      else if (isActive)
-                        const _StatusPill(
-                          label: 'Active',
-                          color: Color(0xFF10B981),
-                        ),
-                    ],
-                  ),
-                  if (subtitle.isNotEmpty) ...[
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.48),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            _SmallIconButton(
-              icon: Icons.edit_rounded,
-              color: const Color(0xFF34D399),
-              onTap: onEdit,
-            ),
-          ],
-        ),
-      ),
-    );
+    final sub = _displayGenericSubtitle(row);
+    final img = _nullableString(row['profile_image_url'] ?? row['image_url'] ?? row['avatar_url']);
+    final active = row['is_active'] == true;
+    final grad = row['is_graduated'] == true;
+    return Padding(padding: const EdgeInsets.fromLTRB(kPadding, 0, kPadding, 10), child: TechnicalCard(padding: const EdgeInsets.all(12), child: Row(children: [_Avatar(imageUrl: img, name: name, size: 40), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [Expanded(child: Text(name.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900))), if (grad) const _StatusPill(label: 'OFFLINE', color: Color(0xFFF59E0B)) else if (active) const _StatusPill(label: 'ACTIVE', color: Color(0xFF10B981))]), if (sub.isNotEmpty) ...[const SizedBox(height: 2), Text(sub.toUpperCase(), style: TextStyle(color: Colors.white.withValues(alpha: 0.25), fontSize: 10, fontWeight: FontWeight.w700))]])), const SizedBox(width: 8), _SmallIconButton(icon: Icons.edit_outlined, color: const Color(0xFF34D399), onTap: onEdit)])));
   }
 }
 
 class _MediaMemberCard extends StatelessWidget {
   final Map<String, dynamic> row;
   final VoidCallback onEdit;
-
   const _MediaMemberCard({required this.row, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
     final name = _stringValue(row['name']);
-    final position = _stringValue(row['position']);
-    final isActive = row['is_active'] == true;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-      child: _GlassCard(
-        padding: const EdgeInsets.all(13),
-        child: Row(
-          children: [
-            _Avatar(
-              imageUrl: _nullableString(row['image_url']),
-              name: name,
-              size: 44,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name.isEmpty ? 'Unnamed Media Member' : name,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  if (position.isNotEmpty) ...[
-                    const SizedBox(height: 3),
-                    Text(
-                      position,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.48),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            if (isActive)
-              const _StatusPill(label: 'Active', color: Color(0xFFEC4899)),
-            const SizedBox(width: 8),
-            _SmallIconButton(
-              icon: Icons.edit_rounded,
-              color: const Color(0xFFEC4899),
-              onTap: onEdit,
-            ),
-          ],
-        ),
-      ),
-    );
+    final pos = _stringValue(row['position']);
+    final active = row['is_active'] == true;
+    return Padding(padding: const EdgeInsets.fromLTRB(kPadding, 0, kPadding, 10), child: TechnicalCard(padding: const EdgeInsets.all(12), child: Row(children: [_Avatar(imageUrl: _nullableString(row['image_url']), name: name, size: 40), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name.isEmpty ? 'UNNAMED MEDIA' : name.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900)), if (pos.isNotEmpty) ...[const SizedBox(height: 2), Text(pos.toUpperCase(), style: TextStyle(color: Colors.white.withValues(alpha: 0.25), fontSize: 10, fontWeight: FontWeight.w700))]])), if (active) const _StatusPill(label: 'ACTIVE', color: Color(0xFFEC4899)), const SizedBox(width: 8), _SmallIconButton(icon: Icons.edit_outlined, color: const Color(0xFFEC4899), onTap: onEdit)])));
   }
 }
 
 class _CoachCard extends StatelessWidget {
   final Map<String, dynamic> row;
   final VoidCallback onEdit;
-
   const _CoachCard({required this.row, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
     final name = _stringValue(row['name']);
-    final isActive = row['is_active'] == true;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-      child: _GlassCard(
-        padding: const EdgeInsets.all(13),
-        child: Row(
-          children: [
-            _Avatar(
-              imageUrl: _nullableString(row['image_url']),
-              name: name,
-              size: 44,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name.isEmpty ? 'Unnamed Coach' : name,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (isActive)
-              const _StatusPill(label: 'Active', color: Color(0xFFF59E0B)),
-            const SizedBox(width: 8),
-            _SmallIconButton(
-              icon: Icons.edit_rounded,
-              color: const Color(0xFFF59E0B),
-              onTap: onEdit,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _GlassCard extends StatelessWidget {
-  final Widget child;
-  final EdgeInsetsGeometry padding;
-
-  const _GlassCard({
-    required this.child,
-    this.padding = const EdgeInsets.all(16),
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: padding,
-      decoration: BoxDecoration(
-        color: const Color(0xFF111827).withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.16),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: child,
-    );
+    final active = row['is_active'] == true;
+    return Padding(padding: const EdgeInsets.fromLTRB(kPadding, 0, kPadding, 10), child: TechnicalCard(padding: const EdgeInsets.all(12), child: Row(children: [_Avatar(imageUrl: _nullableString(row['image_url']), name: name, size: 40), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name.isEmpty ? 'UNNAMED COACH' : name.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900))])), if (active) const _StatusPill(label: 'ACTIVE', color: Color(0xFFF59E0B)), const SizedBox(width: 8), _SmallIconButton(icon: Icons.edit_outlined, color: const Color(0xFFF59E0B), onTap: onEdit)])));
   }
 }
 
@@ -1486,1800 +510,91 @@ class _Avatar extends StatelessWidget {
   final String? imageUrl;
   final String name;
   final double size;
-
-  const _Avatar({
-    required this.imageUrl,
-    required this.name,
-    required this.size,
-  });
+  const _Avatar({this.imageUrl, required this.name, required this.size});
 
   @override
   Widget build(BuildContext context) {
     final initials = _initials(name);
-
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: ClipOval(
-        child: imageUrl == null
-            ? _AvatarFallback(initials: initials)
-            : Image.network(
-                imageUrl!,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) =>
-                    _AvatarFallback(initials: initials),
-              ),
-      ),
-    );
+    return Container(width: size, height: size, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white.withValues(alpha: 0.05))), child: ClipOval(child: imageUrl == null ? _AvatarFallback(initials: initials) : Image.network(imageUrl!, fit: BoxFit.cover, errorBuilder: (c, e, s) => _AvatarFallback(initials: initials))));
   }
 }
 
 class _AvatarFallback extends StatelessWidget {
   final String initials;
-
   const _AvatarFallback({required this.initials});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      alignment: Alignment.center,
-      color: const Color(0xFF1F2937),
-      child: Text(
-        initials,
-        style: const TextStyle(
-          color: Color(0xFF818CF8),
-          fontSize: 13,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
+    return Container(alignment: Alignment.center, color: kSurface, child: Text(initials, style: const TextStyle(color: kAccent, fontSize: 10, fontWeight: FontWeight.w900)));
   }
 }
 
 class _RolePill extends StatelessWidget {
   final String label;
-
   const _RolePill({required this.label});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.055),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: Colors.white.withValues(alpha: 0.7),
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
+    return Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3), decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(6), border: Border.all(color: Colors.white.withValues(alpha: 0.05))), child: Text(label, style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 0.5)));
   }
 }
 
 class _StatusPill extends StatelessWidget {
   final String label;
   final Color color;
-
   const _StatusPill({required this.label, required this.color});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
+    return Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3), decoration: BoxDecoration(color: color.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(6)), child: Text(label, style: TextStyle(color: color, fontSize: 8, fontWeight: FontWeight.w900)));
   }
 }
 
 class _EmptyState extends StatelessWidget {
   final String text;
-
   const _EmptyState({required this.text});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-      child: _GlassCard(
-        child: Text(
-          text,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.56),
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
+    return Padding(padding: const EdgeInsets.fromLTRB(kPadding, 0, kPadding, 10), child: TechnicalCard(child: Text(text.toUpperCase(), style: TextStyle(color: Colors.white.withValues(alpha: 0.2), fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5))));
   }
 }
 
 class _ErrorState extends StatelessWidget {
   final String message;
   final Future<void> Function() onRetry;
-
   const _ErrorState({required this.message, required this.onRetry});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Center(
-        child: _GlassCard(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.error_outline_rounded,
-                color: Color(0xFFF87171),
-                size: 34,
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                'Unable to load members',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.5),
-                  fontSize: 12,
-                ),
-              ),
-              const SizedBox(height: 14),
-              TextButton(onPressed: onRetry, child: const Text('Retry')),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TeamPlayerFormSheet extends StatefulWidget {
-  final _TeamPlayer? player;
-  final List<_TeamOption> teams;
-  final List<_SeasonOption> seasons;
-  final List<_RoleOption> roles;
-
-  const _TeamPlayerFormSheet({
-    required this.player,
-    required this.teams,
-    required this.seasons,
-    required this.roles,
-  });
-
-  @override
-  State<_TeamPlayerFormSheet> createState() => _TeamPlayerFormSheetState();
-}
-
-class _TeamPlayerFormSheetState extends State<_TeamPlayerFormSheet> {
-  final _supabase = Supabase.instance.client;
-  final _imagePicker = ImagePicker();
-  final _nameController = TextEditingController();
-  final _imageController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
-
-  int? _teamId;
-  int? _seasonId;
-  late bool _isActive;
-  late bool _isGraduated;
-  late Set<int> _roleIds;
-  bool _isSaving = false;
-  bool _isUploadingPicture = false;
-
-  String? _initialName;
-  String? _initialImageUrl;
-  int? _initialTeamId;
-  int? _initialSeasonId;
-  bool _initialIsActive = true;
-  bool _initialIsGraduated = false;
-  Set<int> _initialRoleIds = {};
-
-  bool get _hasChanges {
-    if (widget.player == null) return true;
-    return _nameController.text.trim() != _initialName
-        || _imageController.text != _initialImageUrl
-        || _teamId != _initialTeamId
-        || _seasonId != _initialSeasonId
-        || _isActive != _initialIsActive
-        || _isGraduated != _initialIsGraduated
-        || _roleIds != _initialRoleIds;
-  }
-
-  List<_TeamOption> get _teamsForSeason {
-    if (_seasonId == null) return const [];
-    return widget.teams
-        .where((t) => t.seasonId == null || t.seasonId == _seasonId)
-        .toList();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    final player = widget.player;
-    _nameController.text = player?.name ?? '';
-    _imageController.text = player?.imageUrl ?? '';
-    _teamId = player?.teamId ?? widget.teams.firstOrNull?.id;
-    _seasonId = player?.seasonId ?? widget.seasons.firstOrNull?.id;
-    _isActive = player?.isActive ?? true;
-    _isGraduated = player?.isGraduated ?? false;
-    _roleIds = widget.roles
-        .where((role) => player?.roles.contains(role.name) ?? false)
-        .map((role) => role.id)
-        .whereType<int>()
-        .toSet();
-    _initialName = player?.name ?? '';
-    _initialImageUrl = player?.imageUrl ?? '';
-    _initialTeamId = player?.teamId;
-    _initialSeasonId = player?.seasonId;
-    _initialIsActive = player?.isActive ?? true;
-    _initialIsGraduated = player?.isGraduated ?? false;
-    _initialRoleIds = Set.from(_roleIds);
-    if (widget.player != null) {
-      _nameController.addListener(_onFieldChanged);
-      _imageController.addListener(_onFieldChanged);
-    }
-  }
-
-  void _onFieldChanged() {
-    setState(() {});
-  }
-
-  @override
-  void dispose() {
-    _nameController.removeListener(_onFieldChanged);
-    _imageController.removeListener(_onFieldChanged);
-    _nameController.dispose();
-    _imageController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_teamId == null || _seasonId == null) {
-      _showError('Select a team and season first.');
-      return;
-    }
-
-    setState(() => _isSaving = true);
-    final isEditing = widget.player != null;
-    debugPrint('[_TeamPlayerFormSheet._save] isEditing=$isEditing');
-    debugPrint(
-      '[_TeamPlayerFormSheet._save] name="${_nameController.text.trim()}" teamId=$_teamId seasonId=$_seasonId',
-    );
-    try {
-      final payload = {
-        'name': _nameController.text.trim(),
-        'profile_image_url': _nullableString(_imageController.text),
-        'is_active': _isActive,
-        'is_graduated': _isGraduated,
-      };
-
-      final player = widget.player;
-      late final int memberId;
-      if (player == null) {
-        debugPrint('[_TeamPlayerFormSheet._save] inserting new team_member');
-        final inserted = await _supabase
-            .from('team_members')
-            .insert(payload)
-            .select('id')
-            .single();
-        memberId = _intValue(inserted['id'])!;
-        debugPrint('[_TeamPlayerFormSheet._save] new memberId=$memberId');
-      } else {
-        memberId = player.id;
-        debugPrint('[_TeamPlayerFormSheet._save] updating team_members id=$memberId');
-        await _supabase.from('team_members').update(payload).eq('id', memberId);
-        debugPrint('[_TeamPlayerFormSheet._save] team_members updated');
-      }
-
-      final assignmentPayload = {
-        'member_id': memberId,
-        'team_id': _teamId,
-        'season_id': _seasonId,
-      };
-      if (player?.assignmentId == null) {
-        debugPrint('[_TeamPlayerFormSheet._save] inserting assignment');
-        await _supabase.from('member_team_seasons').insert(assignmentPayload);
-      } else {
-        final assignmentId = player!.assignmentId!;
-        debugPrint(
-          '[_TeamPlayerFormSheet._save] updating assignment id=$assignmentId',
-        );
-        await _supabase
-            .from('member_team_seasons')
-            .update(assignmentPayload)
-            .eq('id', assignmentId);
-      }
-      debugPrint('[_TeamPlayerFormSheet._save] assignment done');
-
-      debugPrint('[_TeamPlayerFormSheet._save] deleting old roles for memberId=$memberId');
-      await _supabase
-          .from('member_roles')
-          .delete()
-          .eq('member_id', memberId)
-          .eq('season_id', _seasonId!);
-      if (_roleIds.isNotEmpty) {
-        debugPrint('[_TeamPlayerFormSheet._save] inserting ${_roleIds.length} roles');
-        await _supabase.from('member_roles').insert([
-          for (final roleId in _roleIds)
-            {
-              'member_id': memberId,
-              'role_id': roleId,
-              'season_id': _seasonId,
-            },
-        ]);
-      }
-      debugPrint('[_TeamPlayerFormSheet._save] roles done');
-
-      if (mounted) {
-        await _showSuccess(
-          message: isEditing ? 'Team player updated successfully.' : 'Team player added successfully.',
-          imageUrl: _nullableString(_imageController.text),
-        );
-        if (mounted) Navigator.of(context).pop(true);
-      }
-    } catch (error) {
-      debugPrint('[_TeamPlayerFormSheet._save] ERROR: $error');
-      _showError(error.toString());
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  Future<void> _pickProfilePicture() async {
-    final image = await _imagePicker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 88,
-    );
-    if (image == null) return;
-
-    setState(() => _isUploadingPicture = true);
-    try {
-      final name = _nameController.text.trim();
-      final url = await _uploadMemberPicture(
-        supabase: _supabase,
-        image: image,
-        folder: 'team_players',
-        personName: name.isEmpty ? DateTime.now().microsecondsSinceEpoch.toString() : name,
-      );
-
-      if (mounted) {
-        final confirmed = await _showPhotoConfirmDialog(
-          context: context,
-          url: url,
-          name: name.isEmpty ? 'Team Player' : name,
-        );
-        if (confirmed == true) {
-          _imageController.text = url;
-          if (widget.player != null) {
-            await _supabase
-                .from('team_members')
-                .update({'profile_image_url': url})
-                .eq('id', widget.player!.id);
-          }
-        }
-      }
-    } catch (error) {
-      _showError(error.toString());
-    } finally {
-      if (mounted) setState(() => _isUploadingPicture = false);
-    }
-  }
-
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: const Color(0xFFB91C1C),
-      ),
-    );
-  }
-
-  Future<void> _showSuccess({required String message, String? imageUrl}) async {
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF111827),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Row(
-          children: [
-            Icon(Icons.check_circle, color: Color(0xFF34D399), size: 26),
-            SizedBox(width: 10),
-            Text('Success', style: TextStyle(color: Colors.white)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (imageUrl != null) ...[
-              ClipOval(
-                child: Image.network(
-                  imageUrl,
-                  width: 80,
-                  height: 80,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
-            Text(message, style: const TextStyle(color: Colors.white70)),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Done', style: TextStyle(color: Color(0xFF818CF8))),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isEditing = widget.player != null;
-    return _FormSheetScaffold(
-      title: isEditing ? 'Edit Team Player' : 'Add Team Player',
-      isSaving: _isSaving,
-      canSave: _hasChanges,
-      onSave: _save,
-      child: Form(
-        key: _formKey,
-        child: Column(
-          children: [
-            _TextFieldInput(
-              controller: _nameController,
-              label: 'Name',
-              validator: _requiredValidator,
-            ),
-            const SizedBox(height: 12),
-            _PhotoPickerInput(
-              imageUrl: _nullableString(_imageController.text),
-              isUploading: _isUploadingPicture,
-              onPick: _pickProfilePicture,
-            ),
-            const SizedBox(height: 12),
-            _DropdownInput<int>(
-              label: 'Team',
-              value: _teamsForSeason.any((t) => t.id == _teamId) ? _teamId : null,
-              items: [
-                for (final team in _teamsForSeason)
-                  DropdownMenuItem(value: team.id, child: Text(team.name)),
-              ],
-              onChanged: (value) => setState(() => _teamId = value),
-            ),
-            if (!isEditing) ...[
-              const SizedBox(height: 12),
-              _DropdownInput<int>(
-                label: 'Season',
-                value: _seasonId,
-                items: [
-                  for (final season in widget.seasons)
-                    DropdownMenuItem(value: season.id, child: Text(season.name)),
-                ],
-                onChanged: (value) {
-                  setState(() {
-                    _seasonId = value;
-                    if (!_teamsForSeason.any((t) => t.id == _teamId)) {
-                      _teamId = _teamsForSeason.firstOrNull?.id;
-                    }
-                  });
-                },
-              ),
-            ],
-            const SizedBox(height: 10),
-            _SwitchInput(
-              label: 'Active',
-              value: _isActive,
-              onChanged: (value) => setState(() => _isActive = value),
-            ),
-            _SwitchInput(
-              label: 'Graduated',
-              value: _isGraduated,
-              onChanged: (value) => setState(() => _isGraduated = value),
-            ),
-            const SizedBox(height: 10),
-            _RoleSelector(
-              roles: widget.roles,
-              selectedIds: _roleIds,
-              onChanged: (ids) => setState(() => _roleIds = ids),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MediaMemberFormSheet extends StatefulWidget {
-  final Map<String, dynamic>? row;
-
-  const _MediaMemberFormSheet({required this.row});
-
-  @override
-  State<_MediaMemberFormSheet> createState() => _MediaMemberFormSheetState();
-}
-
-class _MediaMemberFormSheetState extends State<_MediaMemberFormSheet> {
-  final _supabase = Supabase.instance.client;
-  final _imagePicker = ImagePicker();
-  final _nameController = TextEditingController();
-  final _positionController = TextEditingController();
-  final _imageController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
-
-  late bool _isActive;
-  bool _isSaving = false;
-  bool _isUploadingPicture = false;
-
-  String? _initialName;
-  String? _initialPosition;
-  String? _initialImageUrl;
-  bool _initialIsActive = true;
-
-  bool get _hasChanges {
-    if (widget.row == null) return true;
-    return _nameController.text.trim() != _initialName
-        || _positionController.text.trim() != _initialPosition
-        || _imageController.text != _initialImageUrl
-        || _isActive != _initialIsActive;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    final row = widget.row;
-    _nameController.text = _stringValue(row?['name']);
-    _positionController.text = _stringValue(row?['position']);
-    _imageController.text = _stringValue(row?['image_url']);
-    _isActive = row?['is_active'] == true || row == null;
-    _initialName = _stringValue(row?['name']);
-    _initialPosition = _stringValue(row?['position']);
-    _initialImageUrl = _stringValue(row?['image_url']);
-    _initialIsActive = row?['is_active'] == true || row == null;
-    if (widget.row != null) {
-      _nameController.addListener(_onFieldChanged);
-      _positionController.addListener(_onFieldChanged);
-      _imageController.addListener(_onFieldChanged);
-    }
-  }
-
-  void _onFieldChanged() {
-    setState(() {});
-  }
-
-  @override
-  void dispose() {
-    _nameController.removeListener(_onFieldChanged);
-    _positionController.removeListener(_onFieldChanged);
-    _imageController.removeListener(_onFieldChanged);
-    _nameController.dispose();
-    _positionController.dispose();
-    _imageController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _isSaving = true);
-    final isEditing = widget.row != null;
-    debugPrint('[_MediaMemberFormSheet._save] isEditing=$isEditing');
-    debugPrint('[_MediaMemberFormSheet._save] name="${_nameController.text.trim()}"');
-    try {
-      final payload = {
-        'name': _nameController.text.trim(),
-        'position': _nullableString(_positionController.text),
-        'image_url': _nullableString(_imageController.text),
-        'is_active': _isActive,
-      };
-      final id = _intValue(widget.row?['id']);
-      if (id == null) {
-        debugPrint('[_MediaMemberFormSheet._save] inserting new media member');
-        await _supabase.from('media_team').insert(payload);
-      } else {
-        debugPrint('[_MediaMemberFormSheet._save] updating media_team id=$id');
-        await _supabase.from('media_team').update(payload).eq('id', id);
-      }
-      debugPrint('[_MediaMemberFormSheet._save] success');
-      if (mounted) {
-        await _showSuccess(
-          message: isEditing ? 'Media member updated successfully.' : 'Media member added successfully.',
-          imageUrl: _nullableString(_imageController.text),
-        );
-        if (mounted) Navigator.of(context).pop(true);
-      }
-    } catch (error) {
-      debugPrint('[_MediaMemberFormSheet._save] ERROR: $error');
-      _showError(error.toString());
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  Future<void> _pickProfilePicture() async {
-    final image = await _imagePicker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 88,
-    );
-    if (image == null) return;
-
-    setState(() => _isUploadingPicture = true);
-    try {
-      final name = _nameController.text.trim();
-      final url = await _uploadMemberPicture(
-        supabase: _supabase,
-        image: image,
-        folder: 'media_team',
-        personName: name.isEmpty ? DateTime.now().microsecondsSinceEpoch.toString() : name,
-      );
-
-      if (mounted) {
-        final confirmed = await _showPhotoConfirmDialog(
-          context: context,
-          url: url,
-          name: name.isEmpty ? 'Media Member' : name,
-        );
-        if (confirmed == true) {
-          _imageController.text = url;
-          if (widget.row != null) {
-            final id = _intValue(widget.row!['id']);
-            if (id != null) {
-              await _supabase
-                  .from('media_team')
-                  .update({'image_url': url})
-                  .eq('id', id);
-            }
-          }
-        }
-      }
-    } catch (error) {
-      _showError(error.toString());
-    } finally {
-      if (mounted) setState(() => _isUploadingPicture = false);
-    }
-  }
-
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: const Color(0xFFB91C1C),
-      ),
-    );
-  }
-
-  Future<void> _showSuccess({required String message, String? imageUrl}) async {
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF111827),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Row(
-          children: [
-            Icon(Icons.check_circle, color: Color(0xFF34D399), size: 26),
-            SizedBox(width: 10),
-            Text('Success', style: TextStyle(color: Colors.white)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (imageUrl != null) ...[
-              ClipOval(
-                child: Image.network(
-                  imageUrl,
-                  width: 80,
-                  height: 80,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
-            Text(message, style: const TextStyle(color: Colors.white70)),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Done', style: TextStyle(color: Color(0xFF818CF8))),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isEditing = widget.row != null;
-    return _FormSheetScaffold(
-      title: isEditing ? 'Edit Media Member' : 'Add Media Member',
-      isSaving: _isSaving,
-      canSave: _hasChanges,
-      onSave: _save,
-      child: Form(
-        key: _formKey,
-        child: Column(
-          children: [
-            _TextFieldInput(
-              controller: _nameController,
-              label: 'Name',
-              validator: _requiredValidator,
-            ),
-            const SizedBox(height: 12),
-            _TextFieldInput(controller: _positionController, label: 'Position'),
-            const SizedBox(height: 12),
-            _PhotoPickerInput(
-              imageUrl: _nullableString(_imageController.text),
-              isUploading: _isUploadingPicture,
-              onPick: _pickProfilePicture,
-            ),
-            const SizedBox(height: 10),
-            _SwitchInput(
-              label: 'Active',
-              value: _isActive,
-              onChanged: (value) => setState(() => _isActive = value),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _GenericMemberFormSheet extends StatefulWidget {
-  final Map<String, dynamic>? row;
-
-  const _GenericMemberFormSheet({required this.row});
-
-  @override
-  State<_GenericMemberFormSheet> createState() =>
-      _GenericMemberFormSheetState();
-}
-
-class _GenericMemberFormSheetState extends State<_GenericMemberFormSheet> {
-  final _supabase = Supabase.instance.client;
-  final _imagePicker = ImagePicker();
-  final _nameController = TextEditingController();
-  final _subtitleController = TextEditingController();
-  final _imageController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
-
-  late final String _nameKey;
-  late final String? _subtitleKey;
-  late final String? _imageKey;
-  late bool _isActive;
-  bool _isSaving = false;
-  bool _isUploadingPicture = false;
-
-  String? _initialName;
-  String? _initialSubtitle;
-  String? _initialImageUrl;
-  bool _initialIsActive = true;
-
-  bool get _hasChanges {
-    if (widget.row == null) return true;
-    if (_nameController.text.trim() != _initialName) return true;
-    if (_imageController.text != _initialImageUrl) return true;
-    if (_isActive != _initialIsActive) return true;
-    if (_subtitleKey != null && _subtitleController.text.trim() != _initialSubtitle) return true;
-    return false;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    final row = widget.row;
-    _nameKey =
-        _firstExistingKey(row, ['name', 'full_name', 'username', 'email']) ??
-        'name';
-    _subtitleKey = _firstExistingKey(row, [
-      'role',
-      'position',
-      'email',
-      'status',
-    ]);
-    _imageKey =
-        _firstExistingKey(row, [
-          'profile_image_url',
-          'image_url',
-          'avatar_url',
-        ]) ??
-        'image_url';
-    _nameController.text = _stringValue(row?[_nameKey]);
-    if (_subtitleKey != null) {
-      _subtitleController.text = _stringValue(row?[_subtitleKey]);
-    }
-    if (_imageKey != null) {
-      _imageController.text = _stringValue(row?[_imageKey]);
-    }
-    _isActive = row?['is_active'] == true || row == null;
-    _initialName = _stringValue(row?[_nameKey]);
-    _initialSubtitle = _subtitleKey != null ? _stringValue(row?[_subtitleKey]) : null;
-    _initialImageUrl = _imageKey != null ? _stringValue(row?[_imageKey]) : null;
-    _initialIsActive = row?['is_active'] == true || row == null;
-    if (widget.row != null) {
-      _nameController.addListener(_onFieldChanged);
-      _imageController.addListener(_onFieldChanged);
-      if (_subtitleKey != null) {
-        _subtitleController.addListener(_onFieldChanged);
-      }
-    }
-  }
-
-  void _onFieldChanged() {
-    setState(() {});
-  }
-
-  @override
-  void dispose() {
-    _nameController.removeListener(_onFieldChanged);
-    _imageController.removeListener(_onFieldChanged);
-    if (_subtitleKey != null) {
-      _subtitleController.removeListener(_onFieldChanged);
-    }
-    _nameController.dispose();
-    _subtitleController.dispose();
-    _imageController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _isSaving = true);
-    final isEditing = widget.row != null;
-    debugPrint('[_GenericMemberFormSheet._save] isEditing=$isEditing');
-    debugPrint('[_GenericMemberFormSheet._save] nameKey=$_nameKey name="${_nameController.text.trim()}"');
-    try {
-      final payload = <String, dynamic>{_nameKey: _nameController.text.trim()};
-      final imageKey = _imageKey;
-      if (imageKey != null) {
-        payload[imageKey] = _nullableString(_imageController.text);
-      }
-
-      if (widget.row != null) {
-        final subtitleKey = _subtitleKey;
-        if (subtitleKey != null) {
-          payload[subtitleKey] = _nullableString(_subtitleController.text);
-        }
-        if (widget.row!.containsKey('is_active')) {
-          payload['is_active'] = _isActive;
-        }
-      }
-
-      final id = _intValue(widget.row?['id']);
-      debugPrint('[_GenericMemberFormSheet._save] id=$id payload=$payload');
-      if (id == null) {
-        debugPrint('[_GenericMemberFormSheet._save] inserting new member');
-        await _supabase.from('members').insert(payload);
-      } else {
-        debugPrint('[_GenericMemberFormSheet._save] updating members id=$id');
-        await _supabase.from('members').update(payload).eq('id', id);
-      }
-      debugPrint('[_GenericMemberFormSheet._save] success');
-      if (mounted) {
-        await _showSuccess(
-          message: isEditing ? 'Member updated successfully.' : 'Member added successfully.',
-          imageUrl: _nullableString(_imageController.text),
-        );
-        if (mounted) Navigator.of(context).pop(true);
-      }
-    } catch (error) {
-      debugPrint('[_GenericMemberFormSheet._save] ERROR: $error');
-      _showError(error.toString());
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  Future<void> _pickProfilePicture() async {
-    final image = await _imagePicker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 88,
-    );
-    if (image == null) return;
-
-    setState(() => _isUploadingPicture = true);
-    try {
-      final name = _nameController.text.trim();
-      final url = await _uploadMemberPicture(
-        supabase: _supabase,
-        image: image,
-        folder: 'members',
-        personName: name.isEmpty ? DateTime.now().microsecondsSinceEpoch.toString() : name,
-      );
-
-      if (mounted) {
-        final confirmed = await _showPhotoConfirmDialog(
-          context: context,
-          url: url,
-          name: name.isEmpty ? 'Member' : name,
-        );
-        if (confirmed == true) {
-          _imageController.text = url;
-          if (widget.row != null) {
-            final id = _intValue(widget.row!['id']);
-            if (id != null) {
-              await _supabase
-                  .from('members')
-                  .update({_imageKey: url})
-                  .eq('id', id);
-            }
-          }
-        }
-      }
-    } catch (error) {
-      _showError(error.toString());
-    } finally {
-      if (mounted) setState(() => _isUploadingPicture = false);
-    }
-  }
-
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: const Color(0xFFB91C1C),
-      ),
-    );
-  }
-
-  Future<void> _showSuccess({required String message, String? imageUrl}) async {
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF111827),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Row(
-          children: [
-            Icon(Icons.check_circle, color: Color(0xFF34D399), size: 26),
-            SizedBox(width: 10),
-            Text('Success', style: TextStyle(color: Colors.white)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (imageUrl != null) ...[
-              ClipOval(
-                child: Image.network(
-                  imageUrl,
-                  width: 80,
-                  height: 80,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
-            Text(message, style: const TextStyle(color: Colors.white70)),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Done', style: TextStyle(color: Color(0xFF818CF8))),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isEditing = widget.row != null;
-    return _FormSheetScaffold(
-      title: isEditing ? 'Edit Member' : 'Add Member',
-      isSaving: _isSaving,
-      canSave: _hasChanges,
-      onSave: _save,
-      child: Form(
-        key: _formKey,
-        child: Column(
-          children: [
-            _TextFieldInput(
-              controller: _nameController,
-              label: 'Name',
-              validator: _requiredValidator,
-            ),
-            if (_subtitleKey case final subtitleKey?) ...[
-              const SizedBox(height: 12),
-              _TextFieldInput(
-                controller: _subtitleController,
-                label: _fieldLabel(subtitleKey),
-              ),
-            ],
-            if (_imageKey case final imageKey?) ...[
-              const SizedBox(height: 12),
-              _PhotoPickerInput(
-                imageUrl: _nullableString(_imageController.text),
-                isUploading: _isUploadingPicture,
-                onPick: _pickProfilePicture,
-              ),
-            ],
-            if (widget.row?.containsKey('is_active') ?? false) ...[
-              const SizedBox(height: 10),
-              _SwitchInput(
-                label: 'Active',
-                value: _isActive,
-                onChanged: (value) => setState(() => _isActive = value),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CoachFormSheet extends StatefulWidget {
-  final Map<String, dynamic>? row;
-
-  const _CoachFormSheet({required this.row});
-
-  @override
-  State<_CoachFormSheet> createState() => _CoachFormSheetState();
-}
-
-class _CoachFormSheetState extends State<_CoachFormSheet> {
-  final _supabase = Supabase.instance.client;
-  final _imagePicker = ImagePicker();
-  final _nameController = TextEditingController();
-  final _imageController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
-
-  late bool _isActive;
-  bool _isSaving = false;
-  bool _isUploadingPicture = false;
-
-  String? _initialName;
-  String? _initialImageUrl;
-  bool _initialIsActive = true;
-
-  bool get _hasChanges {
-    if (widget.row == null) return true;
-    return _nameController.text.trim() != _initialName
-        || _imageController.text != _initialImageUrl
-        || _isActive != _initialIsActive;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    final row = widget.row;
-    _nameController.text = _stringValue(row?['name']);
-    _imageController.text = _stringValue(row?['image_url']);
-    _isActive = row?['is_active'] == true || row == null;
-    _initialName = _stringValue(row?['name']);
-    _initialImageUrl = _stringValue(row?['image_url']);
-    _initialIsActive = row?['is_active'] == true || row == null;
-    if (widget.row != null) {
-      _nameController.addListener(_onFieldChanged);
-      _imageController.addListener(_onFieldChanged);
-    }
-  }
-
-  void _onFieldChanged() {
-    setState(() {});
-  }
-
-  @override
-  void dispose() {
-    _nameController.removeListener(_onFieldChanged);
-    _imageController.removeListener(_onFieldChanged);
-    _nameController.dispose();
-    _imageController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _isSaving = true);
-    final isEditing = widget.row != null;
-    try {
-      final payload = {
-        'name': _nameController.text.trim(),
-        'image_url': _nullableString(_imageController.text),
-        'is_active': _isActive,
-      };
-      final id = _intValue(widget.row?['id']);
-      if (id == null) {
-        await _supabase.from('Coaches').insert(payload);
-      } else {
-        await _supabase.from('Coaches').update(payload).eq('id', id);
-      }
-      if (mounted) {
-        await _showSuccess(
-          message: isEditing ? 'Coach updated successfully.' : 'Coach added successfully.',
-          imageUrl: _nullableString(_imageController.text),
-        );
-        if (mounted) Navigator.of(context).pop(true);
-      }
-    } catch (error) {
-      _showError(error.toString());
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  Future<void> _pickProfilePicture() async {
-    final image = await _imagePicker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 88,
-    );
-    if (image == null) return;
-
-    setState(() => _isUploadingPicture = true);
-    try {
-      final name = _nameController.text.trim();
-      final url = await _uploadMemberPicture(
-        supabase: _supabase,
-        image: image,
-        folder: 'coaches',
-        personName: name.isEmpty ? DateTime.now().microsecondsSinceEpoch.toString() : name,
-      );
-
-      if (mounted) {
-        final confirmed = await _showPhotoConfirmDialog(
-          context: context,
-          url: url,
-          name: name.isEmpty ? 'Coach' : name,
-        );
-        if (confirmed == true) {
-          _imageController.text = url;
-          if (widget.row != null) {
-            final id = _intValue(widget.row!['id']);
-            if (id != null) {
-              await _supabase
-                  .from('Coaches')
-                  .update({'image_url': url})
-                  .eq('id', id);
-            }
-          }
-        }
-      }
-    } catch (error) {
-      _showError(error.toString());
-    } finally {
-      if (mounted) setState(() => _isUploadingPicture = false);
-    }
-  }
-
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: const Color(0xFFB91C1C),
-      ),
-    );
-  }
-
-  Future<void> _showSuccess({required String message, String? imageUrl}) async {
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF111827),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Row(
-          children: [
-            Icon(Icons.check_circle, color: Color(0xFF34D399), size: 26),
-            SizedBox(width: 10),
-            Text('Success', style: TextStyle(color: Colors.white)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (imageUrl != null) ...[
-              ClipOval(
-                child: Image.network(
-                  imageUrl,
-                  width: 80,
-                  height: 80,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
-            Text(message, style: const TextStyle(color: Colors.white70)),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Done', style: TextStyle(color: Color(0xFF818CF8))),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isEditing = widget.row != null;
-    return _FormSheetScaffold(
-      title: isEditing ? 'Edit Coach' : 'Add Coach',
-      isSaving: _isSaving,
-      canSave: _hasChanges,
-      onSave: _save,
-      child: Form(
-        key: _formKey,
-        child: Column(
-          children: [
-            _TextFieldInput(
-              controller: _nameController,
-              label: 'Name',
-              validator: _requiredValidator,
-            ),
-            const SizedBox(height: 12),
-            _PhotoPickerInput(
-              imageUrl: _nullableString(_imageController.text),
-              isUploading: _isUploadingPicture,
-              onPick: _pickProfilePicture,
-            ),
-            const SizedBox(height: 10),
-            _SwitchInput(
-              label: 'Active',
-              value: _isActive,
-              onChanged: (value) => setState(() => _isActive = value),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _TextFieldInput extends StatelessWidget {
-  final TextEditingController controller;
-  final String label;
-  final String? Function(String?)? validator;
-
-  const _TextFieldInput({
-    required this.controller,
-    required this.label,
-    this.validator,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return TextFormField(
-      controller: controller,
-      validator: validator,
-      style: const TextStyle(color: Colors.white),
-      decoration: _inputDecoration(label),
-    );
-  }
-}
-
-class _PhotoPickerInput extends StatelessWidget {
-  final String? imageUrl;
-  final bool isUploading;
-  final VoidCallback onPick;
-
-  const _PhotoPickerInput({
-    required this.imageUrl,
-    required this.isUploading,
-    required this.onPick,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.045),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: Row(
-        children: [
-          _Avatar(imageUrl: imageUrl, name: 'Profile Picture', size: 52),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Profile picture',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  'Choose from gallery',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.48),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          _SmallIconButton(
-            icon: isUploading
-                ? Icons.hourglass_top_rounded
-                : Icons.photo_library_rounded,
-            color: const Color(0xFF818CF8),
-            onTap: isUploading ? () {} : onPick,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DropdownInput<T> extends StatelessWidget {
-  final String label;
-  final T? value;
-  final List<DropdownMenuItem<T>> items;
-  final ValueChanged<T?> onChanged;
-
-  const _DropdownInput({
-    required this.label,
-    required this.value,
-    required this.items,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return DropdownButtonFormField<T>(
-      initialValue: value,
-      items: items,
-      onChanged: onChanged,
-      isExpanded: true,
-      dropdownColor: const Color(0xFF111827),
-      style: const TextStyle(color: Colors.white),
-      decoration: _inputDecoration(label),
-    );
-  }
-}
-
-class _SwitchInput extends StatelessWidget {
-  final String label;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  const _SwitchInput({
-    required this.label,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SwitchListTile.adaptive(
-      value: value,
-      onChanged: onChanged,
-      contentPadding: EdgeInsets.zero,
-      title: Text(
-        label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      activeThumbColor: const Color(0xFF818CF8),
-    );
-  }
-}
-
-class _RoleSelector extends StatelessWidget {
-  final List<_RoleOption> roles;
-  final Set<int> selectedIds;
-  final ValueChanged<Set<int>> onChanged;
-
-  const _RoleSelector({
-    required this.roles,
-    required this.selectedIds,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (roles.isEmpty) {
-      return Text(
-        'No roles available.',
-        style: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Roles',
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.7),
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final role in roles)
-              Builder(
-                builder: (context) {
-                  final isSelected = selectedIds.contains(role.id);
-                  return FilterChip(
-                    label: Text(
-                      role.name,
-                      style: TextStyle(
-                        color: isSelected
-                            ? Colors.white
-                            : Colors.white.withValues(alpha: 0.72),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    selected: isSelected,
-                    onSelected: (selected) {
-                      final id = role.id;
-                      if (id == null) return;
-                      final next = Set<int>.from(selectedIds);
-                      if (selected) {
-                        next.add(id);
-                      } else {
-                        next.remove(id);
-                      }
-                      onChanged(next);
-                    },
-                    selectedColor: const Color(
-                      0xFF6366F1,
-                    ).withValues(alpha: 0.45),
-                    backgroundColor: const Color(
-                      0xFF111827,
-                    ).withValues(alpha: 0.96),
-                    checkmarkColor: Colors.white,
-                    side: BorderSide(
-                      color: isSelected
-                          ? const Color(0xFF818CF8).withValues(alpha: 0.62)
-                          : Colors.white.withValues(alpha: 0.09),
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  );
-                },
-              ),
-          ],
-        ),
-      ],
-    );
+    return Padding(padding: const EdgeInsets.all(kPadding), child: Center(child: TechnicalCard(child: Column(mainAxisSize: MainAxisSize.min, children: [const Icon(Icons.warning_amber_rounded, color: Color(0xFFF87171), size: 32), const SizedBox(height: 12), const Text('ERROR', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900, letterSpacing: 1.0)), const SizedBox(height: 8), Text(message.toUpperCase(), textAlign: TextAlign.center, style: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 10, fontWeight: FontWeight.w600)), const SizedBox(height: 20), TechnicalButton(label: 'Retry', onTap: onRetry, color: const Color(0xFFF87171))]))));
   }
 }
 
 InputDecoration _inputDecoration(String label) {
   return InputDecoration(
-    labelText: label,
-    labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.56)),
+    labelText: label.toUpperCase(),
+    labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.0),
     filled: true,
-    fillColor: Colors.white.withValues(alpha: 0.055),
-    enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(14),
-      borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-    ),
-    focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(14),
-      borderSide: const BorderSide(color: Color(0xFF818CF8)),
-    ),
-    errorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(14),
-      borderSide: const BorderSide(color: Color(0xFFF87171)),
-    ),
-    focusedErrorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(14),
-      borderSide: const BorderSide(color: Color(0xFFF87171)),
-    ),
+    fillColor: kBackground.withValues(alpha: 0.3),
+    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(kRadius), borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.05))),
+    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(kRadius), borderSide: const BorderSide(color: kAccent, width: 1.0)),
+    errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(kRadius), borderSide: const BorderSide(color: Color(0xFFF87171))),
+    focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(kRadius), borderSide: const BorderSide(color: Color(0xFFF87171))),
   );
 }
 
-String? _requiredValidator(String? value) {
-  if (value == null || value.trim().isEmpty) return 'Required';
-  return null;
-}
-
-Future<String> _uploadMemberPicture({
-  required SupabaseClient supabase,
-  required XFile image,
-  required String folder,
-  required String personName,
-}) async {
-  final bytes = await image.readAsBytes();
-  final extension = _fileExtension(image.name);
-  final safeFolder = folder.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-  final safeName = personName
-      .trim()
-      .replaceAll(RegExp(r'\s+'), '_')
-      .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-  final fileName = safeName.isEmpty
-      ? '$safeFolder/${DateTime.now().microsecondsSinceEpoch}$extension'
-      : '$safeFolder/$safeName$extension';
-
-  await supabase.storage
-      .from('member-pictures')
-      .uploadBinary(
-        fileName,
-        bytes,
-        fileOptions: FileOptions(
-          contentType: _contentTypeForExtension(extension),
-          upsert: true,
-        ),
-      );
-
-  final publicUrl = supabase.storage.from('member-pictures').getPublicUrl(fileName);
-  return '$publicUrl?t=${DateTime.now().millisecondsSinceEpoch}';
-}
-
-Future<bool?> _showPhotoConfirmDialog({
-  required BuildContext context,
-  required String url,
-  required String name,
-}) {
-  return showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      backgroundColor: const Color(0xFF111827),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.check_circle, color: Color(0xFF34D399), size: 48),
-          const SizedBox(height: 18),
-          Container(
-            width: 160,
-            height: 160,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: const Color(0xFF818CF8).withValues(alpha: 0.5),
-                width: 3,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF818CF8).withValues(alpha: 0.25),
-                  blurRadius: 20,
-                ),
-              ],
-            ),
-            child: ClipOval(
-              child: Image.network(
-                url,
-                width: 160,
-                height: 160,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  color: const Color(0xFF1F2937),
-                  child: const Icon(
-                    Icons.broken_image_rounded,
-                    color: Color(0xFF818CF8),
-                    size: 48,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            name.isEmpty ? 'Image Uploaded' : name,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            name.isEmpty
-                ? 'Photo uploaded successfully.'
-                : 'Profile picture ready.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.56),
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        Row(
-          children: [
-            Expanded(
-              child: TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    side: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.12),
-                    ),
-                  ),
-                ),
-                child: Text(
-                  'Cancel',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.6),
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF818CF8),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                child: const Text(
-                  'Use Photo',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
-}
-
-String _fileExtension(String fileName) {
-  final dotIndex = fileName.lastIndexOf('.');
-  if (dotIndex == -1 || dotIndex == fileName.length - 1) return '.jpg';
-  return fileName.substring(dotIndex).toLowerCase();
-}
-
-String _contentTypeForExtension(String extension) {
-  switch (extension.toLowerCase()) {
-    case '.png':
-      return 'image/png';
-    case '.webp':
-      return 'image/webp';
-    case '.gif':
-      return 'image/gif';
-    case '.heic':
-      return 'image/heic';
-    case '.jpg':
-    case '.jpeg':
-    default:
-      return 'image/jpeg';
-  }
-}
-
-List<Map<String, dynamic>> _asMapList(Object? value) {
-  if (value is! List) return const <Map<String, dynamic>>[];
-
-  return value
-      .whereType<Map>()
-      .map((row) => row.map((key, value) => MapEntry(key.toString(), value)))
-      .toList();
-}
-
-String _stringValue(Object? value) => value?.toString().trim() ?? '';
-
-String? _nullableString(Object? value) {
-  final text = _stringValue(value);
-  return text.isEmpty ? null : text;
-}
-
-int? _intValue(Object? value) {
-  if (value is int) return value;
-  return int.tryParse(value?.toString() ?? '');
-}
-
-String _displaySeasonName(Map seasonMap, int id) {
-  final name = _stringValue(seasonMap['season_name']);
-  return name.isEmpty ? 'Season $id' : name;
-}
-
-String _displayTeamName(Map teamMap) {
-  final name = _stringValue(teamMap['team_name']);
-  if (name.isNotEmpty) return name;
-
-  final code = _stringValue(teamMap['team_code']);
-  if (code.isNotEmpty) return code;
-
-  final number = _intValue(teamMap['team_number']);
-  return number == null ? 'Unnamed Team' : 'Team $number';
-}
-
-String _teamMeta(_TeamGroup team) {
-  final parts = <String>[];
-  if (team.number > 0) parts.add('Team ${team.number}');
-  if (team.code.isNotEmpty) parts.add(team.code);
-  return parts.isEmpty ? 'Team roster' : parts.join(' | ');
-}
-
-String _displayGenericName(Map<String, dynamic> row) {
-  for (final key in ['name', 'full_name', 'username', 'email']) {
-    final value = _stringValue(row[key]);
-    if (value.isNotEmpty) return value;
-  }
-  return 'Unnamed Member';
-}
-
-String _displayGenericSubtitle(Map<String, dynamic> row) {
-  for (final key in ['role', 'position', 'email', 'status']) {
-    final value = _stringValue(row[key]);
-    if (value.isNotEmpty && value != _displayGenericName(row)) return value;
-  }
-  return '';
-}
-
-String? _firstExistingKey(Map<String, dynamic>? row, List<String> keys) {
-  if (row == null) return null;
-  for (final key in keys) {
-    if (row.containsKey(key)) return key;
-  }
-  return null;
-}
-
-String _fieldLabel(String key) {
-  return key
-      .split('_')
-      .where((part) => part.isNotEmpty)
-      .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
-      .join(' ');
-}
-
-String _initials(String value) {
-  final words = value
-      .trim()
-      .split(RegExp(r'\s+'))
-      .where((word) => word.isNotEmpty)
-      .toList();
-  if (words.isEmpty) return '?';
-  if (words.length == 1) return words.first.characters.first.toUpperCase();
-  return '${words.first.characters.first}${words.last.characters.first}'
-      .toUpperCase();
-}
+String? _requiredValidator(String? value) => (value == null || value.trim().isEmpty) ? 'Required' : null;
+String _stringValue(Object? v) => v?.toString().trim() ?? '';
+String? _nullableString(Object? v) { final s = _stringValue(v); return s.isEmpty ? null : s; }
+int? _intValue(Object? v) { if (v is int) return v; return int.tryParse(v?.toString() ?? ''); }
+List<Map<String, dynamic>> _asMapList(Object? v) { if (v is! List) return const []; return v.whereType<Map>().map((r) => r.map((k, v) => MapEntry(k.toString(), v))).toList(); }
+String _displaySeasonName(Map r, int id) { final n = _stringValue(r['season_name']); return n.isEmpty ? 'Season $id' : n; }
+String _displayTeamName(Map r) => _stringValue(r['team_name']).isEmpty ? 'TEAM ${_intValue(r['id']) ?? 0}' : _stringValue(r['team_name']);
+String _teamMeta(_TeamGroup t) => [if (t.number > 0) 'Team ${t.number}', if (t.code.isNotEmpty) t.code].join(' | ');
+String _displayGenericName(Map r) => _stringValue(r['name'] ?? r['full_name'] ?? r['username'] ?? r['email']).isEmpty ? 'MEMBER ${_intValue(r['id']) ?? 0}' : _stringValue(r['name'] ?? r['full_name'] ?? r['username'] ?? r['email']);
+String _displayGenericSubtitle(Map r) => _stringValue(rowValue(r, ['role', 'position', 'email', 'status']));
+String rowValue(Map r, List<String> keys) { for (final k in keys) { if (r.containsKey(k)) return _stringValue(r[k]); } return ''; }
+String? _firstExistingKey(Map<String, dynamic>? r, List<String> keys) { if (r == null) return null; for (final k in keys) { if (r.containsKey(k)) return k; } return null; }
+String _fieldLabel(String key) => key.split('_').where((p) => p.isNotEmpty).map((p) => '${p[0].toUpperCase()}${p.substring(1)}').join(' ');
+String _initials(String v) { final words = v.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList(); if (words.isEmpty) return '?'; if (words.length == 1) return words.first.characters.first.toUpperCase(); return '${words.first.characters.first}${words.last.characters.first}'.toUpperCase(); }

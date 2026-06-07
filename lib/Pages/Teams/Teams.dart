@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:qcurobotics_management_app/Services/cache_service.dart';
+import 'package:qcurobotics_management_app/Widgets/design_system.dart';
 import 'package:qcurobotics_management_app/Widgets/loading_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -17,6 +18,7 @@ class _TeamsState extends State<Teams> {
   static const Duration _cacheDuration = Duration(hours: 1);
 
   late Future<_TeamsPageData> _teamsFuture;
+  Key _futureKey = UniqueKey();
   int? _selectedSeasonId;
 
   @override
@@ -36,6 +38,7 @@ class _TeamsState extends State<Teams> {
               if (mounted) {
                 setState(() {
                   _teamsFuture = Future.value(freshData);
+                  _futureKey = UniqueKey();
                 });
               }
             });
@@ -50,7 +53,6 @@ class _TeamsState extends State<Teams> {
   }
 
   Future<_TeamsPageData> _fetchAndCacheTeams() async {
-    debugPrint('[_fetchAndCacheTeams] fetching data...');
     final results = await Future.wait([
       _supabase.from('teams').select('''
         id,
@@ -66,17 +68,11 @@ class _TeamsState extends State<Teams> {
 
     final teamRows = _asMapList(results[0]);
     final seasonRows = _asMapList(results[1]);
-    debugPrint('[_fetchAndCacheTeams] teams: ${teamRows.length}, seasons: ${seasonRows.length}');
 
     final seasons = seasonRows.map((r) => _SeasonInfo(
       id: _intValue(r['id']) ?? 0,
       name: _displaySeasonName(r),
     )).toList();
-
-    debugPrint('[_fetchAndCacheTeams] teamRows count: ${teamRows.length}');
-    for (final row in teamRows) {
-      debugPrint('[_fetchAndCacheTeams] team row: id=${row['id']} name=${row['team_name']} season_id=${row['season_id']}');
-    }
 
     final teamsBySeason = <int, List<_TeamInfo>>{};
     for (final row in teamRows) {
@@ -93,11 +89,6 @@ class _TeamsState extends State<Teams> {
       teamsBySeason.putIfAbsent(sid, () => []).add(team);
     }
 
-    debugPrint('[_fetchAndCacheTeams] teamsBySeason keys: ${teamsBySeason.keys}');
-    for (final entry in teamsBySeason.entries) {
-      debugPrint('[_fetchAndCacheTeams] season ${entry.key}: ${entry.value.length} teams');
-    }
-
     _cachedSeasons = seasons;
 
     final data = _TeamsPageData(
@@ -110,18 +101,22 @@ class _TeamsState extends State<Teams> {
   }
 
   Future<void> _refresh() async {
+    await _cache.clearData(_cacheKey);
     final future = _fetchAndCacheTeams();
     setState(() {
       _teamsFuture = future;
+      _futureKey = UniqueKey();
     });
     await future;
   }
 
   Future<void> _reload() async {
     if (!mounted) return;
+    await _cache.clearData(_cacheKey);
     final future = _fetchAndCacheTeams();
     setState(() {
       _teamsFuture = future;
+      _futureKey = UniqueKey();
     });
     await future;
   }
@@ -145,25 +140,26 @@ class _TeamsState extends State<Teams> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0B1020),
+      backgroundColor: kBackground,
       body: Stack(
         children: [
-          const _TeamsBackground(),
+          const TechnicalGridBackground(),
           SafeArea(
             child: FutureBuilder<_TeamsPageData>(
+              key: _futureKey,
               future: _teamsFuture,
               builder: (context, snapshot) {
                 final data = snapshot.data;
                 return RefreshIndicator(
                   onRefresh: _refresh,
-                  backgroundColor: const Color(0xFF111827),
-                  color: const Color(0xFF10B981),
+                  backgroundColor: kSurface,
+                  color: kAccent,
                   child: CustomScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
                       SliverToBoxAdapter(
                         child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                          padding: const EdgeInsets.all(kPadding),
                           child: _TopBar(
                             isLoading: snapshot.connectionState == ConnectionState.waiting,
                           ),
@@ -183,12 +179,11 @@ class _TeamsState extends State<Teams> {
                           child: TeamsSkeleton(),
                         )
                       else ...[
-                        SliverToBoxAdapter(
-                          child: _SectionHeader(
+                        const SliverToBoxAdapter(
+                          child: TechnicalSectionHeader(
                             label: 'Teams',
-                            count: data.totalCount,
-                            color: const Color(0xFF10B981),
-                            onAdd: () => _openTeamForm(seasons: data.seasons),
+                            color: kAccent,
+                            topPadding: 0,
                           ),
                         ),
                         SliverToBoxAdapter(
@@ -221,7 +216,7 @@ class _TeamsState extends State<Teams> {
                             ),
                           ),
                         ],
-                        const SliverToBoxAdapter(child: SizedBox(height: 36)),
+                        const SliverToBoxAdapter(child: SizedBox(height: 120)),
                       ],
                     ],
                   ),
@@ -230,6 +225,12 @@ class _TeamsState extends State<Teams> {
             ),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: kAccent,
+        foregroundColor: kBackground,
+        onPressed: () => _openTeamForm(seasons: _cachedSeasons),
+        child: const Icon(Icons.add),
       ),
     );
   }
@@ -334,25 +335,6 @@ class _TeamsPageData {
   }
 }
 
-class _TeamsBackground extends StatelessWidget {
-  const _TeamsBackground();
-
-  @override
-  Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: RadialGradient(
-          center: Alignment.topRight,
-          radius: 1.1,
-          colors: [Color(0x2410B981), Color(0x1014B8A6), Color(0x000B1020)],
-          stops: [0, 0.46, 1],
-        ),
-      ),
-      child: SizedBox.expand(),
-    );
-  }
-}
-
 class _TopBar extends StatelessWidget {
   final bool isLoading;
 
@@ -363,7 +345,7 @@ class _TopBar extends StatelessWidget {
     return Row(
       children: [
         _IconButton(
-          icon: Icons.arrow_back_rounded,
+          icon: Icons.arrow_back_ios_new_rounded,
           onTap: () => Navigator.of(context).pop(),
         ),
         const SizedBox(width: 14),
@@ -372,20 +354,21 @@ class _TopBar extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Management',
+                'ADMIN',
                 style: TextStyle(
-                  color: Colors.white54,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+                  color: Colors.white24,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.0,
                 ),
               ),
               Text(
                 'Teams',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 28,
+                  fontSize: 24,
                   fontWeight: FontWeight.w900,
-                  letterSpacing: 0,
+                  letterSpacing: -0.5,
                 ),
               ),
             ],
@@ -393,11 +376,11 @@ class _TopBar extends StatelessWidget {
         ),
         if (isLoading)
           const SizedBox(
-            width: 22,
-            height: 22,
+            width: 20,
+            height: 20,
             child: CircularProgressIndicator(
-              strokeWidth: 2.4,
-              color: Color(0xFF34D399),
+              strokeWidth: 2.0,
+              color: kAccent,
             ),
           ),
       ],
@@ -417,70 +400,14 @@ class _IconButton extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        width: 44,
-        height: 44,
+        width: 40,
+        height: 40,
         decoration: BoxDecoration(
-          color: const Color(0xFF111827).withValues(alpha: 0.9),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          color: kSurface.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
         ),
-        child: Icon(icon, color: Colors.white, size: 24),
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String label;
-  final int count;
-  final Color color;
-  final double topPadding;
-  final VoidCallback? onAdd;
-
-  const _SectionHeader({
-    required this.label,
-    required this.count,
-    required this.color,
-    this.topPadding = 18,
-    this.onAdd,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(24, topPadding, 24, 14),
-      child: Row(
-        children: [
-          Container(
-            width: 4,
-            height: 22,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-                color: Colors.white,
-                letterSpacing: 0,
-              ),
-            ),
-          ),
-          _CountPill(count: count, color: color),
-          if (onAdd != null) ...[
-            const SizedBox(width: 8),
-            _SmallIconButton(
-              icon: Icons.add_rounded,
-              color: color,
-              onTap: onAdd!,
-            ),
-          ],
-        ],
+        child: Icon(icon, color: Colors.white, size: 18),
       ),
     );
   }
@@ -503,14 +430,13 @@ class _SmallIconButton extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        width: 34,
-        height: 34,
+        padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.28)),
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
-        child: Icon(icon, color: color, size: 20),
+        child: Icon(icon, color: color, size: 16),
       ),
     );
   }
@@ -525,18 +451,19 @@ class _CountPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
+        color: color.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.1)),
       ),
       child: Text(
-        count.toString(),
+        count.toString().padLeft(2, '0'),
         style: TextStyle(
           color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+          fontFamily: 'Monospace',
         ),
       ),
     );
@@ -557,15 +484,15 @@ class _SeasonDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-      child: _GlassCard(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.fromLTRB(kPadding, 0, kPadding, 14),
+      child: TechnicalCard(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
         child: Row(
           children: [
             const Icon(
-              Icons.calendar_month_rounded,
-              color: Color(0xFF34D399),
-              size: 22,
+              Icons.calendar_today_outlined,
+              color: kAccent,
+              size: 18,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -573,23 +500,23 @@ class _SeasonDropdown extends StatelessWidget {
                 child: DropdownButton<int?>(
                   value: selectedSeasonId,
                   isExpanded: true,
-                  dropdownColor: const Color(0xFF111827),
-                  iconEnabledColor: const Color(0xFF34D399),
+                  dropdownColor: kSurface,
+                  iconEnabledColor: kAccent,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 15,
+                    fontSize: 14,
                     fontWeight: FontWeight.w800,
                   ),
                   items: [
                     const DropdownMenuItem<int?>(
                       value: null,
-                      child: Text('All Seasons'),
+                      child: Text('ALL SEASONS'),
                     ),
                     for (final season in seasons)
                       DropdownMenuItem<int?>(
                         value: season.id,
                         child: Text(
-                          season.name,
+                          season.name.toUpperCase(),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -628,75 +555,65 @@ class _SeasonCardState extends State<_SeasonCard> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-      child: _GlassCard(
+      padding: const EdgeInsets.fromLTRB(kPadding, 0, kPadding, 14),
+      child: TechnicalCard(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 const Icon(
-                  Icons.calendar_month_rounded,
-                  color: Color(0xFF34D399),
-                  size: 21,
+                  Icons.layers_outlined,
+                  color: kAccent,
+                  size: 18,
                 ),
-                const SizedBox(width: 9),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    widget.season.name,
+                    widget.season.name.toUpperCase(),
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 17,
+                      fontSize: 14,
                       fontWeight: FontWeight.w900,
-                      letterSpacing: 0,
+                      letterSpacing: 1.0,
                     ),
                   ),
                 ),
                 _CountPill(
                   count: widget.teams.length,
-                  color: const Color(0xFF34D399),
+                  color: kAccent,
                 ),
                 if (widget.onEditTeam != null) ...[
                   const SizedBox(width: 8),
                   _SmallIconButton(
-                    icon: _showEditActions ? Icons.check_rounded : Icons.edit_rounded,
+                    icon: _showEditActions ? Icons.done_all_rounded : Icons.edit_outlined,
                     color: _showEditActions
-                        ? const Color(0xFF059669)
-                        : const Color(0xFF34D399),
+                        ? kAccent
+                        : Colors.white38,
                     onTap: () => setState(() => _showEditActions = !_showEditActions),
                   ),
                 ],
                 if (widget.onAddTeam != null) ...[
                   const SizedBox(width: 8),
                   _SmallIconButton(
-                    icon: Icons.add_rounded,
-                    color: const Color(0xFF10B981),
+                    icon: Icons.add,
+                    color: kAccent,
                     onTap: widget.onAddTeam!,
                   ),
                 ],
               ],
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 16),
             if (widget.teams.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.info_outline_rounded,
-                      color: Colors.white.withValues(alpha: 0.35),
-                      size: 18,
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      'No teams in this season yet.',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.45),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  'NO TEAMS FOUND IN THIS SEASON.',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               )
             else
@@ -725,30 +642,30 @@ class _TeamCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final meta = <String>[
-      if (team.number > 0) 'Team ${team.number}',
+      if (team.number > 0) 'Unit ${team.number}',
       if (team.code.isNotEmpty) team.code,
     ].join(' | ');
 
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.035),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        color: kBackground.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
       ),
       child: Row(
         children: [
           Container(
-            width: 42,
-            height: 42,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
-              color: const Color(0xFF10B981).withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(13),
+              color: kAccent.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
             ),
             child: const Icon(
-              Icons.hub_rounded,
-              color: Color(0xFF34D399),
-              size: 22,
+              Icons.hub_outlined,
+              color: kAccent,
+              size: 18,
             ),
           ),
           const SizedBox(width: 12),
@@ -757,21 +674,21 @@ class _TeamCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  team.name.isEmpty ? 'Unnamed Team' : team.name,
+                  team.name.isEmpty ? 'UNNAMED TEAM' : team.name.toUpperCase(),
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 15,
+                    fontSize: 13,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
                 if (meta.isNotEmpty) ...[
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 2),
                   Text(
                     meta,
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.48),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withValues(alpha: 0.25),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ],
@@ -779,12 +696,12 @@ class _TeamCard extends StatelessWidget {
             ),
           ),
           if (team.isActive)
-            const _StatusPill(label: 'Active', color: Color(0xFF10B981)),
+            const _StatusPill(label: 'ACTIVE', color: kAccent),
           if (showEditAction && onEdit != null) ...[
             const SizedBox(width: 8),
             _SmallIconButton(
-              icon: Icons.edit_rounded,
-              color: const Color(0xFF34D399),
+              icon: Icons.edit_note_outlined,
+              color: const Color(0xFF6366F1),
               onTap: onEdit!,
             ),
           ],
@@ -803,70 +720,17 @@ class _StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(10),
+        color: color.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
         label,
         style: TextStyle(
           color: color,
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
-}
-
-class _GlassCard extends StatelessWidget {
-  final Widget child;
-  final EdgeInsetsGeometry padding;
-
-  const _GlassCard({
-    required this.child,
-    this.padding = const EdgeInsets.all(16),
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: padding,
-      decoration: BoxDecoration(
-        color: const Color(0xFF111827).withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.16),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: child,
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  final String text;
-
-  const _EmptyState({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-      child: _GlassCard(
-        child: Text(
-          text,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.56),
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-          ),
+          fontSize: 8,
+          fontWeight: FontWeight.w900,
         ),
       ),
     );
@@ -882,37 +746,43 @@ class _ErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(kPadding),
       child: Center(
-        child: _GlassCard(
+        child: TechnicalCard(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(
-                Icons.error_outline_rounded,
+                Icons.warning_amber_rounded,
                 color: Color(0xFFF87171),
-                size: 34,
+                size: 32,
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               const Text(
-                'Unable to load teams',
+                'CONNECTION ERROR',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 16,
+                  fontSize: 14,
                   fontWeight: FontWeight.w900,
+                  letterSpacing: 1.0,
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
               Text(
-                message,
+                message.toUpperCase(),
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.5),
-                  fontSize: 12,
+                  color: Colors.white38,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 14),
-              TextButton(onPressed: onRetry, child: const Text('Retry')),
+              const SizedBox(height: 20),
+              TechnicalButton(
+                label: 'RETRY',
+                onTap: onRetry,
+                color: const Color(0xFFF87171),
+              ),
             ],
           ),
         ),
@@ -998,7 +868,7 @@ class _TeamFormSheetState extends State<_TeamFormSheet> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (_seasonId == null) {
-      _showError('Please select a season.');
+      _showError('Select a season.');
       return;
     }
     setState(() => _isSaving = true);
@@ -1019,10 +889,10 @@ class _TeamFormSheetState extends State<_TeamFormSheet> {
       }
       if (mounted) {
         await _showResultDialog(
-          icon: Icons.check_circle,
-          iconColor: const Color(0xFF34D399),
+          icon: Icons.check_circle_outline_rounded,
+          iconColor: kAccent,
           title: 'Success',
-          message: isEditing ? 'Team updated successfully.' : 'Team added successfully.',
+          message: isEditing ? 'Team updated.' : 'New team added.',
         );
         if (mounted) Navigator.of(context).pop(true);
       }
@@ -1041,26 +911,8 @@ class _TeamFormSheetState extends State<_TeamFormSheet> {
   }
 
   void _showError(String message) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF111827),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Row(
-          children: [
-            Icon(Icons.warning_rounded, color: Color(0xFFF59E0B), size: 26),
-            SizedBox(width: 10),
-            Text('Validation', style: TextStyle(color: Colors.white)),
-          ],
-        ),
-        content: Text(message, style: const TextStyle(color: Colors.white70)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('OK', style: TextStyle(color: Color(0xFF818CF8))),
-          ),
-        ],
-      ),
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: const Color(0xFFB91C1C)),
     );
   }
 
@@ -1073,20 +925,20 @@ class _TeamFormSheetState extends State<_TeamFormSheet> {
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF111827),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        backgroundColor: kSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
         title: Row(
           children: [
-            Icon(icon, color: iconColor, size: 26),
+            Icon(icon, color: iconColor, size: 24),
             const SizedBox(width: 10),
-            Text(title, style: const TextStyle(color: Colors.white)),
+            Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
           ],
         ),
-        content: Text(message, style: const TextStyle(color: Colors.white70)),
+        content: Text(message, style: const TextStyle(color: Colors.white70, fontSize: 13)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Done', style: TextStyle(color: Color(0xFF818CF8))),
+            child: const Text('OK', style: TextStyle(color: kAccent, fontWeight: FontWeight.w800, fontSize: 13)),
           ),
         ],
       ),
@@ -1133,7 +985,7 @@ class _TeamFormSheetState extends State<_TeamFormSheet> {
             ],
             const SizedBox(height: 10),
             _SwitchInput(
-              label: 'Active',
+              label: 'Active Status',
               value: _isActive,
               onChanged: (value) => setState(() => _isActive = value),
             ),
@@ -1166,60 +1018,65 @@ class _FormSheetScaffold extends StatelessWidget {
       padding: EdgeInsets.only(bottom: bottomInset),
       child: Container(
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.88,
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
         ),
-        decoration: const BoxDecoration(
-          color: Color(0xFF0B1020),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        decoration: BoxDecoration(
+          color: kSurface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
         ),
         child: SafeArea(
           top: false,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white10,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 12, 12),
+                child: Row(
                   children: [
                     Expanded(
                       child: Text(
-                        title,
+                        title.toUpperCase(),
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 22,
+                          fontSize: 16,
                           fontWeight: FontWeight.w900,
+                          letterSpacing: 1.0,
                         ),
                       ),
                     ),
-                    TextButton(
-                      onPressed: isSaving
-                          ? null
-                          : () => Navigator.of(context).pop(false),
-                      child: const Text('Cancel'),
-                    ),
-                    const SizedBox(width: 4),
-                    FilledButton(
-                      onPressed: (isSaving || !canSave) ? null : onSave,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: canSave
-                            ? null
-                            : const Color(0xFF10B981).withValues(alpha: 0.3),
-                      ),
-                      child: isSaving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Save'),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white38),
                     ),
                   ],
                 ),
-                const SizedBox(height: 18),
-                child,
-              ],
-            ),
+              ),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  child: child,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                child: TechnicalButton(
+                  label: isSaving ? 'SAVING...' : 'SAVE',
+                  onTap: (isSaving || !canSave) ? () {} : onSave,
+                  isLoading: isSaving,
+                  color: canSave ? kAccent : Colors.white24,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -1246,7 +1103,7 @@ class _TextFieldInput extends StatelessWidget {
       controller: controller,
       validator: validator,
       keyboardType: keyboardType,
-      style: const TextStyle(color: Colors.white),
+      style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
       decoration: _inputDecoration(label),
     );
   }
@@ -1268,20 +1125,20 @@ class _SeasonDropdownInput extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DropdownButtonFormField<int>(
-      value: value,
+      initialValue: value,
       isExpanded: true,
-      dropdownColor: const Color(0xFF111827),
-      style: const TextStyle(color: Colors.white),
+      dropdownColor: kSurface,
+      style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
       decoration: _inputDecoration(label),
       items: [
         const DropdownMenuItem<int>(
           value: null,
-          child: Text('Select a season'),
+          child: Text('SELECT SEASON'),
         ),
         for (final season in items)
           DropdownMenuItem<int>(
             value: season.id,
-            child: Text(season.name),
+            child: Text(season.name.toUpperCase()),
           ),
       ],
       onChanged: onChanged,
@@ -1307,44 +1164,46 @@ class _SwitchInput extends StatelessWidget {
       onChanged: onChanged,
       contentPadding: EdgeInsets.zero,
       title: Text(
-        label,
+        label.toUpperCase(),
         style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w700,
+          color: Colors.white70,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.5,
         ),
       ),
-      activeThumbColor: const Color(0xFF34D399),
+      activeThumbColor: kAccent,
     );
   }
 }
 
 InputDecoration _inputDecoration(String label) {
   return InputDecoration(
-    labelText: label,
-    labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.56)),
+    labelText: label.toUpperCase(),
+    labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.0),
     filled: true,
-    fillColor: Colors.white.withValues(alpha: 0.055),
+    fillColor: kBackground.withValues(alpha: 0.3),
     enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(14),
-      borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+      borderRadius: BorderRadius.circular(kRadius),
+      borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.05)),
     ),
     focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(14),
-      borderSide: const BorderSide(color: Color(0xFF34D399)),
+      borderRadius: BorderRadius.circular(kRadius),
+      borderSide: const BorderSide(color: kAccent, width: 1.0),
     ),
     errorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(kRadius),
       borderSide: const BorderSide(color: Color(0xFFF87171)),
     ),
     focusedErrorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(kRadius),
       borderSide: const BorderSide(color: Color(0xFFF87171)),
     ),
   );
 }
 
 String? _requiredValidator(String? value) {
-  if (value == null || value.trim().isEmpty) return 'Required';
+  if (value == null || value.trim().isEmpty) return 'REQUIRED';
   return null;
 }
 

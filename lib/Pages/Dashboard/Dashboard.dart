@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:qcurobotics_management_app/Pages/Members/Members.dart';
+import 'package:qcurobotics_management_app/Pages/Members/members.dart';
 import 'package:qcurobotics_management_app/Pages/Profile/profile_page.dart';
-import 'package:qcurobotics_management_app/Pages/Teams/Teams.dart';
-import 'package:qcurobotics_management_app/Pages/Tournaments/Tournaments.dart';
+import 'package:qcurobotics_management_app/Pages/Teams/teams.dart';
+import 'package:qcurobotics_management_app/Pages/Tournaments/tournaments.dart';
 import 'package:qcurobotics_management_app/Services/cache_service.dart';
+import 'package:qcurobotics_management_app/Widgets/design_system.dart';
 import 'package:qcurobotics_management_app/Widgets/loading_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -12,6 +13,20 @@ class Dashboard extends StatefulWidget {
 
   @override
   State<Dashboard> createState() => _DashboardState();
+}
+
+class _StatCardData {
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  const _StatCardData({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
 }
 
 class _DashboardOverviewData {
@@ -86,7 +101,6 @@ class _DashboardState extends State<Dashboard> {
   Future<void> _loadOverviewData({bool forceRefresh = false}) async {
     if (!mounted) return;
 
-    // 1. Try to load from persistent cache first
     final cachedMap = await _cache.getData(_overviewCacheKey);
     if (cachedMap != null) {
       final cachedData = _DashboardOverviewData.fromMap(cachedMap);
@@ -94,22 +108,18 @@ class _DashboardState extends State<Dashboard> {
         setState(() => _applyOverviewData(cachedData, loading: false));
       }
       
-      // If the cache is still fresh, we're done
       final freshCachedMap = await _cache.getData(_overviewCacheKey, maxAge: _overviewCacheDuration);
       if (!forceRefresh && freshCachedMap != null) {
-        debugPrint('Using fresh persistent dashboard cache.');
         return;
       }
     }
 
-    // 2. Fetch from network if cache is missing, stale, or force refresh
     await _fetchOverviewData();
   }
 
   Future<void> _fetchOverviewData() async {
     if (!mounted) return;
     
-    debugPrint('🔄 Starting fetch...');
     try {
       final results = await Future.wait([
         _supabase.from('team_members').count(),
@@ -130,155 +140,147 @@ class _DashboardState extends State<Dashboard> {
           totalTeams: results[6],
         );
 
-        // Save to persistent cache
         await _cache.saveData(_overviewCacheKey, overviewData.toMap());
 
         setState(() {
           _applyOverviewData(overviewData, loading: false);
         });
-        debugPrint(
-          '✅ Dashboard fetch complete and cached.',
-        );
       }
-    } catch (e, stackTrace) {
-      debugPrint('❌ ERROR: $e');
-      debugPrint('📋 StackTrace: $stackTrace');
+    } catch (e) {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   String _getGreeting() {
     final hour = DateTime.now().hour;
-    if (hour < 12) return 'Good Morning,';
-    if (hour < 17) return 'Good Afternoon,';
-    return 'Good Evening,';
+    if (hour < 12) return 'GOOD MORNING';
+    if (hour < 17) return 'GOOD AFTERNOON';
+    return 'GOOD EVENING';
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBody: true,
-      backgroundColor: const Color(0xFF0B1020),
+      backgroundColor: kBackground,
       body: Stack(
         children: [
-          const _DashboardBackground(),
-
-          RepaintBoundary(
-            child: SafeArea(
-              bottom: false,
-              child: RefreshIndicator(
-                onRefresh: () => _loadOverviewData(forceRefresh: true),
-                backgroundColor: const Color(0xFF1a1a3e),
-                color: const Color(0xFF6366F1),
-                child: CustomScrollView(
-                  physics: const ClampingScrollPhysics(),
-                  cacheExtent: 360,
-                  slivers: [
-                    // Top bar
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-                        child: _TopBar(
-                          greeting: _getGreeting(),
-                          userName: _supabase.auth.currentUser?.userMetadata?['full_name'],
-                          photoUrl: _supabase.auth.currentUser?.userMetadata?['avatar_url'],
-                        ),
+          const TechnicalGridBackground(),
+          
+          SafeArea(
+            child: RefreshIndicator(
+              onRefresh: () => _loadOverviewData(forceRefresh: true),
+              backgroundColor: kSurface,
+              color: kAccent,
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.all(kPadding),
+                      child: _TopBar(
+                        greeting: _getGreeting(),
+                        userName: _supabase.auth.currentUser?.userMetadata?['full_name'],
+                        photoUrl: _supabase.auth.currentUser?.userMetadata?['avatar_url'],
                       ),
                     ),
+                  ),
 
-                    // Overview header
-                    SliverToBoxAdapter(
-                      child: _SectionHeader(
-                        label: 'Overview',
-                        color: Colors.cyanAccent,
-                      ),
+                  const SliverToBoxAdapter(
+                    child: TechnicalSectionHeader(
+                      label: 'Overview',
+                      color: kAccent,
                     ),
+                  ),
 
-                    // Stats grid (2x2)
-                    SliverPadding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      sliver: SliverGrid(
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 2,
-                              mainAxisSpacing: 14,
-                              crossAxisSpacing: 14,
-                              childAspectRatio: 1.65,
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: kPadding),
+                    sliver: SliverGrid(
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        mainAxisSpacing: 10,
+                        crossAxisSpacing: 10,
+                        childAspectRatio: 1.4,
+                      ),
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          final stats = [
+                            _StatCardData(
+                              title: 'TOTAL MEMBERS',
+                              value: _totalMembers.toString(),
+                              icon: Icons.people_outline,
+                              color: const Color(0xFF6366F1),
                             ),
-                        delegate: SliverChildListDelegate([
-                          _StatCard(
-                            title: 'Total Members',
-                            value: _totalMembers.toString(),
-                            icon: Icons.people_alt_rounded,
-                            color: const Color(0xFF6366F1),
+                            _StatCardData(
+                              title: 'TOURNAMENTS',
+                              value: _totalTournaments.toString(),
+                              icon: Icons.emoji_events_outlined,
+                              color: const Color(0xFFF59E0B),
+                            ),
+                            _StatCardData(
+                              title: 'ACHIEVEMENTS',
+                              value: _totalAchievements.toString(),
+                              icon: Icons.military_tech_outlined,
+                              color: const Color(0xFF10B981),
+                            ),
+                            _StatCardData(
+                              title: 'SPONSORS',
+                              value: _totalSponsors.toString(),
+                              icon: Icons.business_outlined,
+                              color: const Color(0xFFEC4899),
+                            ),
+                          ];
+                          final data = stats[index];
+                          return _StatCard(
+                            title: data.title,
+                            value: data.value,
+                            icon: data.icon,
+                            color: data.color,
                             isLoading: _isLoading,
-                          ),
-                          _StatCard(
-                            title: 'Tournaments',
-                            value: _totalTournaments.toString(),
-                            icon: Icons.emoji_events_rounded,
-                            color: const Color(0xFFF59E0B),
-                            isLoading: _isLoading,
-                          ),
-                          _StatCard(
-                            title: 'Achievements',
-                            value: _totalAchievements.toString(),
-                            icon: Icons.military_tech_rounded,
-                            color: const Color(0xFF10B981),
-                            isLoading: _isLoading,
-                          ),
-                          _StatCard(
-                            title: 'Sponsors',
-                            value: _totalSponsors.toString(),
-                            icon: Icons.business_center_rounded,
-                            color: const Color(0xFFEC4899),
-                            isLoading: _isLoading,
-                          ),
-                        ]),
+                          );
+                        },
+                        childCount: 4,
                       ),
                     ),
+                  ),
 
-                    // Active teams full-width
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(kPadding, 10, kPadding, 0),
+                      child: SizedBox(
+                        height: 100,
                         child: _StatCard(
-                          title: 'Active Teams',
+                          title: 'ACTIVE TEAMS',
                           value: _totalTeams.toString(),
-                          icon: Icons.hub_rounded,
+                          icon: Icons.hub_outlined,
                           color: const Color(0xFF06B6D4),
                           isLoading: _isLoading,
                           fullWidth: true,
                         ),
                       ),
                     ),
+                  ),
 
-                    // Management header
-                    SliverToBoxAdapter(
-                      child: _SectionHeader(
-                        label: 'Management',
-                        color: const Color(0xFF6366F1),
-                        topPadding: 32,
-                      ),
+                  const SliverToBoxAdapter(
+                    child: TechnicalSectionHeader(
+                      label: 'Management',
+                      color: kAccent,
+                      topPadding: 24,
                     ),
+                  ),
 
-                    // Management actions
-                    const SliverToBoxAdapter(
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 20),
-                        child: _ManagementRow(),
-                      ),
-                    ),
+                  const SliverPadding(
+                    padding: EdgeInsets.symmetric(horizontal: kPadding),
+                    sliver: _ManagementList(),
+                  ),
 
-                    const SliverToBoxAdapter(child: SizedBox(height: 140)),
-                  ],
-                ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 120)),
+                ],
               ),
             ),
           ),
         ],
       ),
-      bottomNavigationBar: _BottomNav(
+      bottomNavigationBar: _FloatingGlassNav(
         selectedIndex: _selectedIndex,
         onTap: (i) => setState(() => _selectedIndex = i),
       ),
@@ -286,140 +288,7 @@ class _DashboardState extends State<Dashboard> {
   }
 }
 
-// ── Glow blob ──────────────────────────────────────────────────────────────
-
-class _DashboardBackground extends StatelessWidget {
-  const _DashboardBackground();
-
-  @override
-  Widget build(BuildContext context) {
-    return const RepaintBoundary(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment.topRight,
-            radius: 1.15,
-            colors: [Color(0x1F6366F1), Color(0x0F14B8A6), Color(0x000B1020)],
-            stops: [0, 0.45, 1],
-          ),
-        ),
-        child: SizedBox.expand(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment.bottomLeft,
-                radius: 1.1,
-                colors: [Color(0x1414B8A6), Color(0x000B1020)],
-                stops: [0, 0.72],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Glass card ─────────────────────────────────────────────────────────────
-
-class _GlassCard extends StatelessWidget {
-  final Widget child;
-  final EdgeInsetsGeometry padding;
-  final double radius;
-  final Color? tint;
-  final List<BoxShadow>? shadows;
-
-  const _GlassCard({
-    required this.child,
-    this.padding = const EdgeInsets.all(16),
-    this.radius = 24,
-    this.tint,
-    this.shadows,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(radius),
-        boxShadow:
-            shadows ??
-            [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.18),
-                blurRadius: 14,
-                offset: const Offset(0, 6),
-              ),
-            ],
-      ),
-      child: Container(
-        padding: padding,
-        decoration: BoxDecoration(
-          color: tint ?? const Color(0xFF111827).withValues(alpha: 0.88),
-          borderRadius: BorderRadius.circular(radius),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.08),
-            width: 1,
-          ),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.white.withValues(alpha: 0.05),
-              Colors.white.withValues(alpha: 0.012),
-            ],
-          ),
-        ),
-        child: child,
-      ),
-    );
-  }
-}
-
-// ── Section header ─────────────────────────────────────────────────────────
-
-class _SectionHeader extends StatelessWidget {
-  final String label;
-  final Color color;
-  final double topPadding;
-
-  const _SectionHeader({
-    required this.label,
-    required this.color,
-    this.topPadding = 20,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(24, topPadding, 24, 16),
-      child: Row(
-        children: [
-          Container(
-            width: 4,
-            height: 22,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-              color: Colors.white,
-              letterSpacing: 0,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Top bar ────────────────────────────────────────────────────────────────
+// ── Dashboard Sub-Widgets ───────────────────────────────────────────────────
 
 class _TopBar extends StatelessWidget {
   final String greeting;
@@ -434,103 +303,103 @@ class _TopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final firstName = (userName ?? 'User').split(' ').first;
+    final firstName = (userName ?? 'ADMIN').split(' ').first.toUpperCase();
 
     return Row(
       children: [
         GestureDetector(
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const ProfilePage()),
-            );
-          },
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ProfilePage())),
           child: Container(
-            padding: const EdgeInsets.all(2.5),
-            decoration: const BoxDecoration(
+            padding: const EdgeInsets.all(1.5),
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [Color(0xFF6366F1), Color(0xFFEC4899)],
-              ),
+              border: Border.all(color: kAccent.withValues(alpha: 0.3)),
             ),
-            child: Container(
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Color(0xFF0B1020),
-              ),
-              padding: const EdgeInsets.all(2),
-              child: CircleAvatar(
-                radius: 23,
-                backgroundImage: photoUrl != null
-                    ? NetworkImage(photoUrl!)
-                    : const NetworkImage('https://i.pravatar.cc/150?img=11'),
-              ),
+            child: CircleAvatar(
+              radius: 18,
+              backgroundColor: kSurface,
+              backgroundImage: photoUrl != null ? NetworkImage(photoUrl!) : null,
+              child: photoUrl == null ? const Icon(Icons.person_outline, color: Colors.white, size: 18) : null,
             ),
           ),
         ),
-        const SizedBox(width: 14),
+        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 greeting,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Colors.white54,
-                  fontWeight: FontWeight.w500,
+                style: TextStyle(
+                  fontSize: 9,
+                  color: Colors.white.withValues(alpha: 0.3),
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.0,
                 ),
               ),
               Text(
                 firstName,
                 style: const TextStyle(
-                  fontSize: 22,
+                  fontSize: 17,
                   fontWeight: FontWeight.w900,
                   color: Colors.white,
-                  letterSpacing: 0,
+                  letterSpacing: -0.5,
                 ),
               ),
             ],
           ),
         ),
-        _GlassCard(
-          padding: const EdgeInsets.all(12),
-          radius: 18,
-          shadows: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.16),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              const Icon(
-                Icons.notifications_active_outlined,
-                color: Colors.white,
-                size: 24,
-              ),
-              Positioned(
-                top: -2,
-                right: -2,
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEC4899),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-            ],
-          ),
+        _IconButton(
+          icon: Icons.notifications_none_outlined,
+          onTap: () {},
+          hasNotification: true,
         ),
       ],
     );
   }
 }
 
-// ── Stat card ──────────────────────────────────────────────────────────────
+class _IconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool hasNotification;
+
+  const _IconButton({required this.icon, required this.onTap, this.hasNotification = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: kSurface.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+        ),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Icon(icon, color: Colors.white.withValues(alpha: 0.7), size: 18),
+            if (hasNotification)
+              Positioned(
+                top: -1,
+                right: -1,
+                child: Container(
+                  width: 5,
+                  height: 5,
+                  decoration: const BoxDecoration(
+                    color: kAccent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _StatCard extends StatelessWidget {
   final String title, value;
@@ -550,132 +419,92 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _GlassCard(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      radius: 18,
-      shadows: [
-        BoxShadow(
-          color: Colors.black.withValues(alpha: 0.16),
-          blurRadius: 14,
-          offset: const Offset(0, 6),
-        ),
-      ],
-      child: Row(
+    return TechnicalCard(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: color.withValues(alpha: 0.24),
-                width: 1,
-              ),
-            ),
-            child: Icon(icon, color: color, size: 22),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (isLoading)
-                  const Skeleton(height: 22, width: 50)
-                else
-                  Text(
-                    value,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: fullWidth ? 26 : 20,
-                      fontWeight: FontWeight.w900,
-                    ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Icon(icon, color: color.withValues(alpha: 0.8), size: 14),
+              if (fullWidth)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: color.withValues(alpha: 0.1)),
                   ),
-                const SizedBox(height: 3),
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.45),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.3,
+                  child: Text(
+                    'ACTIVE',
+                    style: TextStyle(color: color, fontSize: 7, fontWeight: FontWeight.w900, letterSpacing: 0.5),
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
-              ],
-            ),
+            ],
           ),
-          if (fullWidth)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: color.withValues(alpha: 0.3)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.circle, color: color, size: 7),
-                  const SizedBox(width: 5),
-                  Text(
-                    'Active',
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
+          const SizedBox(height: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (isLoading)
+                const Skeleton(height: 20, width: 40)
+              else
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.5,
                     ),
                   ),
-                ],
+                ),
+              Text(
+                title,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.25),
+                  fontSize: 8,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-            ),
+            ],
+          ),
         ],
       ),
     );
   }
 }
 
-// ── Management actions ─────────────────────────────────────────────────────
-
-class _ManagementRow extends StatelessWidget {
-  const _ManagementRow();
+class _ManagementList extends StatelessWidget {
+  const _ManagementList();
 
   final _items = const [
-    _MgmtItem(
-      label: 'Members',
-      icon: Icons.people_alt_rounded,
-      color: Color(0xFF6366F1),
-      destination: Members(),
-    ),
-    _MgmtItem(
-      label: 'Teams',
-      icon: Icons.hub_rounded,
-      color: Color(0xFF10B981),
-      destination: Teams(),
-    ),
-    _MgmtItem(
-      label: 'Competitions',
-      icon: Icons.sports_esports_rounded,
-      color: Color(0xFFF59E0B),
-      destination: Tournaments(),
-    ),
-    _MgmtItem(
-      label: 'Contents',
-      icon: Icons.auto_awesome_motion_rounded,
-      color: Color(0xFFEC4899),
-    ),
+    _MgmtItem(label: 'MEMBERS', icon: Icons.people_outline, color: Color(0xFF6366F1), destination: Members()),
+    _MgmtItem(label: 'TEAMS', icon: Icons.hub_outlined, color: Color(0xFF10B981), destination: Teams()),
+    _MgmtItem(label: 'TOURNAMENTS', icon: Icons.sports_esports_outlined, color: Color(0xFFF59E0B), destination: Tournaments()),
+    _MgmtItem(label: 'CONTENTS', icon: Icons.folder_open_outlined, color: Color(0xFFEC4899)),
   ];
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        for (final item in _items) ...[
-          _ManagementButton(item: item),
-          if (item != _items.last) const SizedBox(height: 12),
-        ],
-      ],
+    return SliverList(
+      delegate: SliverChildBuilderDelegate(
+        (context, index) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _ManagementButton(item: _items[index]),
+          );
+        },
+        childCount: _items.length,
+      ),
     );
   }
 }
@@ -711,87 +540,46 @@ class _ManagementButtonState extends State<_ManagementButton> {
       onTapDown: (_) => setState(() => _pressed = true),
       onTapUp: (_) {
         setState(() => _pressed = false);
-        final destination = item.destination;
-        if (destination == null) return;
-
-        Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => destination));
+        if (item.destination != null) {
+          Navigator.of(context).push(MaterialPageRoute(builder: (_) => item.destination!));
+        }
       },
       onTapCancel: () => setState(() => _pressed = false),
       child: AnimatedScale(
-        scale: _pressed ? 0.97 : 1.0,
-        duration: const Duration(milliseconds: 120),
-        child: Container(
+        scale: _pressed ? 0.98 : 1.0,
+        duration: const Duration(milliseconds: 100),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 100),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.14),
-                blurRadius: 12,
-                offset: const Offset(0, 5),
-              ),
-            ],
+            color: _pressed ? kSurface.withValues(alpha: 0.6) : kSurface.withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(kRadius),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
           ),
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 76),
-            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  item.color.withValues(alpha: 0.16),
-                  const Color(0xFF111827).withValues(alpha: 0.9),
-                ],
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: item.color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Icon(item.icon, color: item.color, size: 20),
               ),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: item.color.withValues(alpha: 0.2),
-                width: 1,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  item.label,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: 0.5,
+                  ),
+                ),
               ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: item.color.withValues(alpha: 0.13),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(item.icon, color: item.color, size: 23),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Text(
-                    item.label,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                      letterSpacing: 0,
-                    ),
-                  ),
-                ),
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.045),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.06),
-                    ),
-                  ),
-                  child: Icon(
-                    Icons.chevron_right_rounded,
-                    color: item.color.withValues(alpha: 0.82),
-                    size: 24,
-                  ),
-                ),
-              ],
-            ),
+              Icon(Icons.arrow_forward_ios_rounded, color: Colors.white.withValues(alpha: 0.1), size: 14),
+            ],
           ),
         ),
       ),
@@ -799,82 +587,36 @@ class _ManagementButtonState extends State<_ManagementButton> {
   }
 }
 
-// ── Bottom nav ─────────────────────────────────────────────────────────────
-
-class _BottomNav extends StatelessWidget {
+class _FloatingGlassNav extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onTap;
 
-  const _BottomNav({required this.selectedIndex, required this.onTap});
+  const _FloatingGlassNav({required this.selectedIndex, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 126,
-      child: Stack(
-        alignment: Alignment.bottomCenter,
+    return Container(
+      margin: const EdgeInsets.fromLTRB(24, 0, 24, 30),
+      height: 64,
+      decoration: BoxDecoration(
+        color: kSurface.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          Positioned.fill(
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      const Color(0xFF050816).withValues(alpha: 0.76),
-                    ],
-                    stops: const [0.08, 1],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Container(
-            margin: const EdgeInsets.fromLTRB(20, 0, 20, 30),
-            height: 72,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(28),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.42),
-                  blurRadius: 22,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: _GlassCard(
-              padding: EdgeInsets.zero,
-              radius: 28,
-              tint: const Color(0xFF0B1020).withValues(alpha: 0.98),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _NavIcon(
-                    icon: Icons.grid_view_rounded,
-                    active: selectedIndex == 0,
-                    onTap: () => onTap(0),
-                  ),
-                  _NavIcon(
-                    icon: Icons.analytics_outlined,
-                    active: selectedIndex == 1,
-                    onTap: () => onTap(1),
-                  ),
-                  _NavIcon(
-                    icon: Icons.person_outline_rounded,
-                    active: selectedIndex == 2,
-                    onTap: () => onTap(2),
-                  ),
-                  _NavIcon(
-                    icon: Icons.settings_rounded,
-                    active: selectedIndex == 3,
-                    onTap: () => onTap(3),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          _NavIcon(icon: Icons.grid_view_outlined, active: selectedIndex == 0, onTap: () => onTap(0)),
+          _NavIcon(icon: Icons.bar_chart_outlined, active: selectedIndex == 1, onTap: () => onTap(1)),
+          _NavIcon(icon: Icons.person_outline, active: selectedIndex == 2, onTap: () => onTap(2)),
+          _NavIcon(icon: Icons.settings_outlined, active: selectedIndex == 3, onTap: () => onTap(3)),
         ],
       ),
     );
@@ -886,33 +628,40 @@ class _NavIcon extends StatelessWidget {
   final bool active;
   final VoidCallback onTap;
 
-  const _NavIcon({
-    required this.icon,
-    required this.active,
-    required this.onTap,
-  });
+  const _NavIcon({required this.icon, required this.active, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
-        decoration: BoxDecoration(
-          color: active
-              ? const Color(0xFF6366F1).withValues(alpha: 0.18)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(22),
-        ),
-        child: Icon(
-          icon,
-          color: active
-              ? const Color(0xFF818CF8)
-              : Colors.white.withValues(alpha: 0.3),
-          size: 26,
-        ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: active ? kAccent.withValues(alpha: 0.1) : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              icon,
+              color: active ? kAccent : Colors.white.withValues(alpha: 0.4),
+              size: 22,
+            ),
+          ),
+          if (active)
+            Container(
+              margin: const EdgeInsets.only(top: 2),
+              width: 4,
+              height: 4,
+              decoration: const BoxDecoration(
+                color: kAccent,
+                shape: BoxShape.circle,
+              ),
+            ),
+        ],
       ),
     );
   }

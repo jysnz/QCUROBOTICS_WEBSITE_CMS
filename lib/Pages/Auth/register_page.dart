@@ -4,6 +4,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:qcurobotics_management_app/Pages/Auth/auth_widgets.dart';
+import 'package:qcurobotics_management_app/Widgets/design_system.dart';
 
 class RegisterPage extends StatefulWidget {
   final String? initialEmail;
@@ -44,7 +45,6 @@ class _RegisterPageState extends State<RegisterPage> {
   bool _isLoadingTeams = false;
   bool _isRegistering = false;
 
-  // Password validation states
   bool _hasMinLength = false;
   bool _hasUppercase = false;
   bool _hasNumber = false;
@@ -130,8 +130,8 @@ class _RegisterPageState extends State<RegisterPage> {
       barrierDismissible: false,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
-          backgroundColor: const Color(0xFF111827),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          backgroundColor: kSurface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -139,45 +139,35 @@ class _RegisterPageState extends State<RegisterPage> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: const BoxDecoration(
-                  color: Color(0xFF10B981),
+                  color: kAccent,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(Icons.check_rounded, size: 48, color: Colors.white),
               ),
               const SizedBox(height: 24),
               const Text(
-                'Registration Successful!',
+                'Registration Successful',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
               const SizedBox(height: 12),
               Text(
-                'Your account has been created. Welcome to the QCU Robotics team!',
+                'Your account has been created. Welcome to QCU Robotics!',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.6),
-                  fontSize: 14,
+                  color: Colors.white.withValues(alpha: 0.4),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(dialogContext).pop();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF6366F1),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: const Text('Get Started', style: TextStyle(fontWeight: FontWeight.w700)),
-                ),
+              TechnicalButton(
+                label: 'Continue',
+                onTap: () => Navigator.of(dialogContext).pop(),
               ),
             ],
           ),
@@ -191,23 +181,23 @@ class _RegisterPageState extends State<RegisterPage> {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          backgroundColor: const Color(0xFF111827),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          backgroundColor: kSurface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
           title: const Row(
             children: [
-              Icon(Icons.error_outline_rounded, color: Colors.redAccent),
+              Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 20),
               SizedBox(width: 10),
-              Text('Registration Error', style: TextStyle(color: Colors.white)),
+              Text('Error', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
             ],
           ),
           content: Text(
             message,
-            style: const TextStyle(color: Colors.white70),
+            style: const TextStyle(color: Colors.white70, fontSize: 14),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK', style: TextStyle(color: Color(0xFF6366F1))),
+              child: const Text('OK', style: TextStyle(color: kAccent, fontSize: 13, fontWeight: FontWeight.w800)),
             ),
           ],
         );
@@ -216,28 +206,22 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   Future<void> _register() async {
-    debugPrint('🚀 Starting registration process...');
-    
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty || _nameController.text.isEmpty) {
-      debugPrint('❌ Validation failed: Missing fields');
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all required fields')));
       return;
     }
 
     if (!_isPasswordValid) {
-      debugPrint('❌ Validation failed: Weak password');
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please meet all password requirements')));
       return;
     }
 
     if (!_passwordsMatch) {
-      debugPrint('❌ Validation failed: Passwords do not match');
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Passwords do not match')));
       return;
     }
 
     if (_selectedPosition == 'Team Player' && _selectedTeamId == null) {
-      debugPrint('❌ Validation failed: Team Player selected but no team_id');
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a team')));
       return;
     }
@@ -248,21 +232,13 @@ class _RegisterPageState extends State<RegisterPage> {
       final user = supabase.auth.currentUser;
 
       if (user != null || widget.isGoogleSignUp) {
-        debugPrint('🔄 Mode: Complete Profile / Google User');
         final targetUser = user ?? supabase.auth.currentUser;
-        
         if (targetUser != null) {
-          debugPrint('👤 Target User ID: ${targetUser.id}');
-          
           if (_passwordController.text.isNotEmpty) {
-            debugPrint('🔑 Updating password...');
             await supabase.auth.updateUser(
               UserAttributes(password: _passwordController.text.trim()),
             );
-            debugPrint('✅ Password updated');
           }
-
-          debugPrint('💾 Upserting to user_accounts...');
           await supabase.from('user_accounts').upsert({
             'id': targetUser.id,
             'email': _emailController.text.trim(),
@@ -270,15 +246,8 @@ class _RegisterPageState extends State<RegisterPage> {
             'position': _selectedPosition,
             'team_id': _selectedTeamId,
           });
-          debugPrint('✅ user_accounts upsert successful');
-        } else {
-          debugPrint('❌ Error: No authenticated user found during profile completion');
-          throw 'No authenticated user found. Please try logging in again.';
         }
       } else {
-        debugPrint('🆕 Mode: Initial Email/Password Sign Up');
-        debugPrint('📧 Email: ${_emailController.text.trim()}');
-        
         final response = await supabase.auth.signUp(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
@@ -290,9 +259,7 @@ class _RegisterPageState extends State<RegisterPage> {
           }
         );
 
-        debugPrint('✅ Auth signUp call complete');
         if (response.session == null) {
-          debugPrint('ℹ️ Session is null (Email confirmation likely required)');
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Account created! Please confirm your email.')),
@@ -300,13 +267,10 @@ class _RegisterPageState extends State<RegisterPage> {
             Navigator.of(context).pop();
             return;
           }
-        } else {
-          debugPrint('✅ Session established immediately');
         }
       }
       
       if (mounted) {
-        debugPrint('🎉 Registration/Profile Save Finished Successfully');
         setState(() => _isRegistering = false);
         await _showSuccessDialog();
         if (!mounted) return;
@@ -317,22 +281,14 @@ class _RegisterPageState extends State<RegisterPage> {
         }
       }
     } on AuthException catch (e) {
-      debugPrint('❌ AuthException: ${e.message} (Status: ${e.statusCode})');
       if (mounted) {
         setState(() => _isRegistering = false);
-        _showErrorDialog('Authentication error: ${e.message}');
-      }
-    } on PostgrestException catch (e) {
-      debugPrint('❌ PostgrestException: ${e.message} (Code: ${e.code})');
-      if (mounted) {
-        setState(() => _isRegistering = false);
-        _showErrorDialog('Database error: ${e.message}');
+        _showErrorDialog(e.message);
       }
     } catch (e) {
-      debugPrint('❌ Unexpected Error: $e');
       if (mounted) {
         setState(() => _isRegistering = false);
-        _showErrorDialog('An unexpected error occurred: $e');
+        _showErrorDialog(e.toString());
       }
     }
   }
@@ -340,26 +296,20 @@ class _RegisterPageState extends State<RegisterPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      backgroundColor: const Color(0xFF0B1020),
+      backgroundColor: kBackground,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: widget.isGoogleSignUp 
           ? IconButton(
-              icon: const Icon(Icons.logout_rounded, color: Colors.white70),
+              icon: const Icon(Icons.logout_rounded, color: Colors.white38),
               onPressed: () async {
-                try {
-                  await GoogleSignIn().signOut();
-                } catch (e) {
-                  debugPrint('Google sign out error: $e');
-                }
+                await GoogleSignIn().signOut();
                 await Supabase.instance.client.auth.signOut();
               },
-              tooltip: 'Logout',
             )
           : IconButton(
-              icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+              icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
               onPressed: () => Navigator.of(context).pop(),
             ),
       ),
@@ -374,59 +324,49 @@ class _RegisterPageState extends State<RegisterPage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      widget.isGoogleSignUp ? 'Complete Profile' : 'Create Account',
+                      widget.isGoogleSignUp ? 'Complete Profile' : 'Register',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
-                        fontSize: 32,
+                        fontSize: 24,
                         fontWeight: FontWeight.w900,
                         color: Colors.white,
-                        letterSpacing: -0.5,
+                        letterSpacing: 1.0,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       widget.isGoogleSignUp 
-                        ? 'Finish setting up your account' 
-                        : 'Join the QCU Robotics team',
+                        ? 'Setup your profile' 
+                        : 'Create an account',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        fontSize: 15,
-                        color: Colors.white.withValues(alpha: 0.6),
-                        fontWeight: FontWeight.w500,
+                        fontSize: 12,
+                        color: Colors.white.withValues(alpha: 0.3),
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 32),
-                    // Profile Image Placeholder
                     Center(
                       child: GestureDetector(
                         onTap: _pickImage,
                         child: Container(
-                          padding: const EdgeInsets.all(4),
+                          padding: const EdgeInsets.all(2),
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF6366F1), Color(0xFFEC4899)],
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF6366F1).withValues(alpha: 0.3),
-                                blurRadius: 20,
-                                offset: const Offset(0, 10),
-                              ),
-                            ],
+                            border: Border.all(color: kAccent.withValues(alpha: 0.3)),
                           ),
                           child: Stack(
                             children: [
                               CircleAvatar(
-                                radius: 50,
-                                backgroundColor: const Color(0xFF1F2937),
+                                radius: 44,
+                                backgroundColor: kSurface,
                                 backgroundImage: _imageFile != null
                                     ? FileImage(_imageFile!)
                                     : (widget.initialImageUrl != null
                                         ? NetworkImage(widget.initialImageUrl!)
                                         : null),
                                 child: (_imageFile == null && widget.initialImageUrl == null)
-                                    ? const Icon(Icons.person_rounded, size: 50, color: Colors.white24)
+                                    ? const Icon(Icons.person_outline, size: 40, color: Colors.white24)
                                     : null,
                               ),
                               Positioned(
@@ -435,10 +375,10 @@ class _RegisterPageState extends State<RegisterPage> {
                                 child: Container(
                                   padding: const EdgeInsets.all(4),
                                   decoration: const BoxDecoration(
-                                    color: Color(0xFF6366F1),
+                                    color: kAccent,
                                     shape: BoxShape.circle,
                                   ),
-                                  child: const Icon(Icons.camera_alt_rounded, size: 18, color: Colors.white),
+                                  child: const Icon(Icons.camera_alt_outlined, size: 14, color: Colors.white),
                                 ),
                               ),
                             ],
@@ -462,168 +402,110 @@ class _RegisterPageState extends State<RegisterPage> {
                           AuthTextField(
                             controller: _nameController,
                             label: 'Full Name',
-                            icon: Icons.person_outline_rounded,
+                            icon: Icons.badge_outlined,
                           ),
                           const SizedBox(height: 16),
                           AuthTextField(
                             controller: _passwordController,
-                            label: widget.isGoogleSignUp ? 'Set Password' : 'Password',
-                            icon: Icons.lock_outline_rounded,
+                            label: 'Password',
+                            icon: Icons.lock_outline,
                             obscureText: true,
                           ),
                           const SizedBox(height: 12),
                           
-                          // Password Requirements Checklist
-                          _PasswordRequirement(
-                            label: 'At least 8 characters',
-                            isValid: _hasMinLength,
-                          ),
-                          _PasswordRequirement(
-                            label: 'One uppercase letter',
-                            isValid: _hasUppercase,
-                          ),
-                          _PasswordRequirement(
-                            label: 'One number',
-                            isValid: _hasNumber,
-                          ),
-                          _PasswordRequirement(
-                            label: 'One special character',
-                            isValid: _hasSpecialChar,
-                          ),
+                          _PasswordRequirement(label: '8+ Characters', isValid: _hasMinLength),
+                          _PasswordRequirement(label: 'Uppercase', isValid: _hasUppercase),
+                          _PasswordRequirement(label: 'Number', isValid: _hasNumber),
+                          _PasswordRequirement(label: 'Special Character', isValid: _hasSpecialChar),
                           
                           const SizedBox(height: 16),
                           
-                          // Confirm Password TextField
                           AuthTextField(
                             controller: _confirmPasswordController,
                             label: 'Confirm Password',
-                            icon: Icons.lock_outline_rounded,
+                            icon: Icons.lock_reset_outlined,
                             obscureText: true,
                           ),
-                          if (_confirmPasswordController.text.isNotEmpty && !_passwordsMatch)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 8, left: 4),
-                              child: Row(
-                                children: [
-                                  Icon(Icons.error_outline_rounded, size: 14, color: Colors.red.withValues(alpha: 0.8)),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'Passwords do not match',
-                                    style: TextStyle(
-                                      color: Colors.red.withValues(alpha: 0.8),
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
                           
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 24),
                           
-                          // Position Header
-                          const Padding(
-                            padding: EdgeInsets.only(left: 4, bottom: 8),
-                            child: Text(
-                              'Position',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          // Position Dropdown
+                          const Text('Role', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 8),
+                          
                           Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.03),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                              color: kBackground.withValues(alpha: 0.3),
+                              borderRadius: BorderRadius.circular(kRadius),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
                             ),
                             child: DropdownButtonHideUnderline(
-                              child: ButtonTheme(
-                                alignedDropdown: true,
-                                child: DropdownButton<String>(
-                                  value: _selectedPosition,
-                                  isExpanded: true,
-                                  dropdownColor: const Color(0xFF111827),
-                                  icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF6366F1)),
-                                  style: const TextStyle(color: Colors.white, fontSize: 15),
-                                  items: _positions.map((String position) {
-                                    return DropdownMenuItem<String>(
-                                      value: position,
-                                      child: Text(position),
-                                    );
-                                  }).toList(),
-                                  onChanged: (String? newValue) {
-                                    if (newValue != null) {
-                                      setState(() {
-                                        _selectedPosition = newValue;
-                                        if (_selectedPosition != 'Team Player') {
-                                          _selectedTeamId = null;
-                                        }
-                                      });
-                                    }
-                                  },
-                                ),
+                              child: DropdownButton<String>(
+                                value: _selectedPosition,
+                                isExpanded: true,
+                                dropdownColor: kSurface,
+                                icon: const Icon(Icons.keyboard_arrow_down_rounded, color: kAccent),
+                                style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                                items: _positions.map((String position) {
+                                  return DropdownMenuItem<String>(
+                                    value: position,
+                                    child: Text(position),
+                                  );
+                                }).toList(),
+                                onChanged: (String? newValue) {
+                                  if (newValue != null) {
+                                    setState(() {
+                                      _selectedPosition = newValue;
+                                      if (_selectedPosition != 'Team Player') {
+                                        _selectedTeamId = null;
+                                      }
+                                    });
+                                  }
+                                },
                               ),
                             ),
                           ),
                           
                           if (_selectedPosition == 'Team Player') ...[
                             const SizedBox(height: 16),
-                            // Team Header
-                            const Padding(
-                              padding: EdgeInsets.only(left: 4, bottom: 8),
-                              child: Text(
-                                'Select Team',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
                             if (_isLoadingTeams)
-                              const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1)))
+                              const Center(child: CircularProgressIndicator(color: kAccent))
                             else
                               Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.03),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                                  color: kBackground.withValues(alpha: 0.3),
+                                  borderRadius: BorderRadius.circular(kRadius),
+                                  border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
                                 ),
                                 child: DropdownButtonHideUnderline(
-                                  child: ButtonTheme(
-                                    alignedDropdown: true,
-                                    child: DropdownButton<int>(
-                                      value: _selectedTeamId,
-                                      isExpanded: true,
-                                      hint: Text('Select Team', style: TextStyle(color: Colors.white.withValues(alpha: 0.5))),
-                                      dropdownColor: const Color(0xFF111827),
-                                      icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF6366F1)),
-                                      style: const TextStyle(color: Colors.white, fontSize: 15),
-                                      items: _teams.map((team) {
-                                        return DropdownMenuItem<int>(
-                                          value: team['id'] as int,
-                                          child: Text(team['team_name'] as String),
-                                        );
-                                      }).toList(),
-                                      onChanged: (int? newValue) {
-                                        setState(() {
-                                          _selectedTeamId = newValue;
-                                        });
-                                      },
-                                    ),
+                                  child: DropdownButton<int>(
+                                    value: _selectedTeamId,
+                                    isExpanded: true,
+                                    hint: Text('Select Team', style: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 13, fontWeight: FontWeight.w600)),
+                                    dropdownColor: kSurface,
+                                    icon: const Icon(Icons.keyboard_arrow_down_rounded, color: kAccent),
+                                    style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                                    items: _teams.map((team) {
+                                      return DropdownMenuItem<int>(
+                                        value: team['id'] as int,
+                                        child: Text(team['team_name'] as String),
+                                      );
+                                    }).toList(),
+                                    onChanged: (int? newValue) {
+                                      setState(() {
+                                        _selectedTeamId = newValue;
+                                      });
+                                    },
                                   ),
                                 ),
                               ),
                           ],
                           const SizedBox(height: 32),
                           AuthButton(
-                            label: widget.isGoogleSignUp ? 'Save Profile' : 'Register',
+                            label: widget.isGoogleSignUp ? 'Complete Profile' : 'Create Account',
                             onPressed: _register,
                             isLoading: _isRegistering,
-                            color: const Color(0xFF10B981),
                           ),
                         ],
                       ),
@@ -655,17 +537,17 @@ class _PasswordRequirement extends StatelessWidget {
       child: Row(
         children: [
           Icon(
-            isValid ? Icons.check_circle_rounded : Icons.circle_outlined,
+            isValid ? Icons.check_circle_rounded : Icons.radio_button_off_rounded,
             size: 14,
-            color: isValid ? const Color(0xFF10B981) : Colors.white24,
+            color: isValid ? kAccent : Colors.white12,
           ),
           const SizedBox(width: 8),
           Text(
             label,
             style: TextStyle(
               fontSize: 12,
-              color: isValid ? Colors.white70 : Colors.white38,
-              fontWeight: isValid ? FontWeight.w600 : FontWeight.w400,
+              color: isValid ? Colors.white70 : Colors.white24,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
