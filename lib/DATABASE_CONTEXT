@@ -255,3 +255,37 @@ create policy "Allow public to view match assets"
 on storage.objects for select
 to public
 using (bucket_id = 'competition_matches');
+
+-- images bucket
+insert into storage.buckets (id, name, public)
+values ('images', 'images', true)
+on conflict (id) do nothing;
+
+create policy "Allow Media users to upload images"
+on storage.objects for insert
+to authenticated
+with check (
+  bucket_id = 'images' 
+  and (select position from public.user_accounts where id = auth.uid()) = 'Media'
+);
+
+create policy "Allow Media users to update images"
+on storage.objects for update
+to authenticated
+using (
+  bucket_id = 'images' 
+  and (select position from public.user_accounts where id = auth.uid()) = 'Media'
+);
+
+create policy "Allow Media users to delete images"
+on storage.objects for delete
+to authenticated
+using (
+  bucket_id = 'images' 
+  and (select position from public.user_accounts where id = auth.uid()) = 'Media'
+);
+
+create policy "Allow public to view images"
+on storage.objects for select
+to public
+using (bucket_id = 'images');

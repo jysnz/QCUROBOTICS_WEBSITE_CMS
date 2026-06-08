@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:qcurobotics_management_app/Pages/Dashboard/contents_management_page.dart';
 import 'package:qcurobotics_management_app/Pages/Members/members.dart';
 import 'package:qcurobotics_management_app/Pages/Profile/profile_page.dart';
 import 'package:qcurobotics_management_app/Pages/Teams/teams.dart';
@@ -490,7 +491,7 @@ class _ManagementList extends StatelessWidget {
     _MgmtItem(label: 'MEMBERS', icon: Icons.people_outline, color: Color(0xFF6366F1), destination: Members()),
     _MgmtItem(label: 'TEAMS', icon: Icons.hub_outlined, color: Color(0xFF10B981), destination: Teams()),
     _MgmtItem(label: 'TOURNAMENTS', icon: Icons.sports_esports_outlined, color: Color(0xFFF59E0B), destination: Tournaments()),
-    _MgmtItem(label: 'CONTENTS', icon: Icons.folder_open_outlined, color: Color(0xFFEC4899)),
+    _MgmtItem(label: 'CONTENTS', icon: Icons.folder_open_outlined, color: Color(0xFFEC4899), destination: ContentsManagementPage()),
   ];
 
   @override

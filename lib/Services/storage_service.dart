@@ -10,19 +10,60 @@ class StorageService {
     required String folder,
     required String personName,
   }) async {
-    final bytes = await image.readAsBytes();
-    final extension = _fileExtension(image.name);
+    return uploadFile(
+      supabase: supabase,
+      bucket: 'member-pictures',
+      folder: folder,
+      file: image,
+      customName: personName,
+    );
+  }
+
+  static Future<String> uploadFile({
+    required SupabaseClient supabase,
+    required String bucket,
+    required String folder,
+    required XFile file,
+    String? customName,
+    String? oldPath,
+  }) async {
+    // Delete old file if provided
+    if (oldPath != null && oldPath.isNotEmpty) {
+      try {
+        final uri = Uri.parse(oldPath);
+        final pathSegments = uri.pathSegments;
+        // The path in the bucket usually starts after 'public' and bucket name
+        // Depending on how getPublicUrl is structured.
+        // Usually: /storage/v1/object/public/bucket-name/folder/filename
+        final bucketIndex = pathSegments.indexOf(bucket);
+        if (bucketIndex != -1 && bucketIndex + 1 < pathSegments.length) {
+          final actualPath = pathSegments.sublist(bucketIndex + 1).join('/');
+          // Remove query params if any
+          final cleanPath = actualPath.split('?').first;
+          await supabase.storage.from(bucket).remove([cleanPath]);
+        }
+      } catch (e) {
+        debugPrint('Error deleting old file: $e');
+      }
+    }
+
+    final bytes = await file.readAsBytes();
+    final extension = _fileExtension(file.name);
     final safeFolder = folder.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-    final safeName = personName
-        .trim()
-        .replaceAll(RegExp(r'\s+'), '_')
-        .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-    final fileName = safeName.isEmpty
-        ? '$safeFolder/${DateTime.now().microsecondsSinceEpoch}$extension'
-        : '$safeFolder/$safeName$extension';
+    
+    String fileName;
+    if (customName != null && customName.trim().isNotEmpty) {
+      final safeName = customName
+          .trim()
+          .replaceAll(RegExp(r'\s+'), '_')
+          .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+      fileName = '$safeFolder/$safeName$extension';
+    } else {
+      fileName = '$safeFolder/${DateTime.now().microsecondsSinceEpoch}$extension';
+    }
 
     await supabase.storage
-        .from('member-pictures')
+        .from(bucket)
         .uploadBinary(
           fileName,
           bytes,
@@ -32,8 +73,48 @@ class StorageService {
           ),
         );
 
-    final publicUrl = supabase.storage.from('member-pictures').getPublicUrl(fileName);
+    final publicUrl = supabase.storage.from(bucket).getPublicUrl(fileName);
     return '$publicUrl?t=${DateTime.now().millisecondsSinceEpoch}';
+  }
+
+  static Future<void> deleteFile({
+    required SupabaseClient supabase,
+    required String bucket,
+    required String path,
+  }) async {
+    try {
+      // If path is a full URL, extract the relative path
+      String cleanPath = path;
+      if (path.startsWith('http')) {
+        final uri = Uri.parse(path);
+        final pathSegments = uri.pathSegments;
+        final bucketIndex = pathSegments.indexOf(bucket);
+        if (bucketIndex != -1 && bucketIndex + 1 < pathSegments.length) {
+          cleanPath = pathSegments.sublist(bucketIndex + 1).join('/');
+        }
+      }
+      cleanPath = cleanPath.split('?').first;
+      await supabase.storage.from(bucket).remove([cleanPath]);
+    } catch (e) {
+      debugPrint('Error deleting file: $e');
+      rethrow;
+    }
+  }
+
+  static Future<List<FileObject>> listFiles({
+    required SupabaseClient supabase,
+    required String bucket,
+    required String folder,
+  }) async {
+    return await supabase.storage.from(bucket).list(path: folder);
+  }
+
+  static String getPublicUrl({
+    required SupabaseClient supabase,
+    required String bucket,
+    required String path,
+  }) {
+    return supabase.storage.from(bucket).getPublicUrl(path);
   }
 
   static String _fileExtension(String fileName) {
