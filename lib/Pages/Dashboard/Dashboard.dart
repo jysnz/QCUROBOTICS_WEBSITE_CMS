@@ -8,6 +8,8 @@ import 'package:qcurobotics_management_app/Services/cache_service.dart';
 import 'package:qcurobotics_management_app/Widgets/design_system.dart';
 import 'package:qcurobotics_management_app/Widgets/loading_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:qcurobotics_management_app/Pages/Matches/match_management_page.dart';
+import 'package:qcurobotics_management_app/Pages/Inventory/inventory_page.dart';
 
 class Dashboard extends StatefulWidget {
   const Dashboard({super.key});
@@ -159,15 +161,12 @@ class _DashboardState extends State<Dashboard> {
     return 'GOOD EVENING';
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: kBackground,
-      body: Stack(
-        children: [
-          const TechnicalGridBackground(),
-          
-          SafeArea(
+  Widget _buildDashboardContent() {
+    return Stack(
+      children: [
+        const TechnicalGridBackground(),
+        
+        SafeArea(
             child: RefreshIndicator(
               onRefresh: () => _loadOverviewData(forceRefresh: true),
               backgroundColor: kSurface,
@@ -279,6 +278,20 @@ class _DashboardState extends State<Dashboard> {
               ),
             ),
           ),
+        ],
+      );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: kBackground,
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: [
+          _buildDashboardContent(),
+          const MatchManagementPage(),
+          const InventoryPage(),
         ],
       ),
       bottomNavigationBar: _FloatingGlassNav(
@@ -615,9 +628,8 @@ class _FloatingGlassNav extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           _NavIcon(icon: Icons.grid_view_outlined, active: selectedIndex == 0, onTap: () => onTap(0)),
-          _NavIcon(icon: Icons.bar_chart_outlined, active: selectedIndex == 1, onTap: () => onTap(1)),
-          _NavIcon(icon: Icons.person_outline, active: selectedIndex == 2, onTap: () => onTap(2)),
-          _NavIcon(icon: Icons.settings_outlined, active: selectedIndex == 3, onTap: () => onTap(3)),
+          _NavIcon(icon: Icons.sports_esports_outlined, active: selectedIndex == 1, onTap: () => onTap(1)),
+          _NavIcon(icon: Icons.inventory_2_outlined, active: selectedIndex == 2, onTap: () => onTap(2)),
         ],
       ),
     );
